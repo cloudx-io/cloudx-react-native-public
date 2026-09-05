@@ -1,0 +1,10 @@
+{
+  "name": "CloudXReactNativeDemo",
+  "displayName": "CloudX First Look Demo",
+  "_comment_name": "The registered module name stays CloudXReactNativeDemo: it must match the Xcode product name and AppDelegate's moduleName. Only displayName differs.",
+  "react-native-google-mobile-ads": {
+    "android_app_id": "ca-app-pub-3940256099942544~3347511713",
+    "ios_app_id": "ca-app-pub-3940256099942544~1458002511",
+    "_comment": "Google's public sample AdMob app IDs. Swap both for the publisher's real Ad Manager app IDs in a production integration. The authoritative values for the build are in ios/CloudXReactNativeDemo/Info.plist (GADApplicationIdentifier) and android/app/src/main/AndroidManifest.xml (com.google.android.gms.ads.APPLICATION_ID)."
+  }
+}

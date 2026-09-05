@@ -1,0 +1,90 @@
+# Resolve react_native_pods.rb with node to allow for hoisting
+require Pod::Executable.execute_command('node', ['-p',
+  'require.resolve(
+    "react-native/scripts/react_native_pods.rb",
+    {paths: [process.argv[1]]},
+  )', __dir__]).strip
+
+platform :ios, min_ios_version_supported
+prepare_react_native_project!
+
+# ---------------------------------------------------------------------------
+# Architecture toggle (OldArch = Paper, NewArch = Fabric + TurboModules).
+# Set RCT_NEW_ARCH_ENABLED=1 before `pod install` to build the NewArch
+# variant. Unset / 0 defaults to OldArch for the existing publisher
+# compatibility surface.
+# ---------------------------------------------------------------------------
+new_arch_enabled = (ENV['RCT_NEW_ARCH_ENABLED'] == '1')
+puts "[CloudXRN Podfile] new_arch_enabled=#{new_arch_enabled}"
+
+target 'CloudXReactNativeDemo' do
+  config = use_native_modules!
+
+  use_react_native!(
+    :path => config[:reactNativePath],
+    :app_path => "#{Pod::Config.instance.installation_root}/..",
+    :new_arch_enabled => new_arch_enabled
+  )
+
+  # Google Mobile Ads, for the GAM fallback leg. Pulled in by
+  # react-native-google-mobile-ads via use_native_modules! above — it is NOT
+  # declared here explicitly, and CloudXGoogleWaterfallAdapter is deliberately
+  # absent.
+  #
+  # Two reasons the Google Waterfall adapter must stay out of this app:
+  #   1. Semantics. Google Waterfall runs AdMob demand *inside* the CloudX
+  #      auction. First Look is the opposite: GAM is the publisher's own
+  #      separate stack that CloudX never sees. Including it would make this
+  #      demo measure something other than what it claims to.
+  #   2. Mechanics. The adapter pins Google-Mobile-Ads-SDK to an exact version,
+  #      and react-native-google-mobile-ads brings its own. CocoaPods resolves
+  #      one version per pod for the whole project, so the two fight.
+
+  # CloudX SDK and adapters — pinned to an exact published version so this demo
+  # reproduces one specific runtime rather than whatever is newest.
+  #
+  # NOTE the exact `3.4.5` rather than `~> 3.4.5`: CloudXCore 3.4.6 exists, and
+  # the pessimistic operator would silently resolve to it.
+  pod 'CloudXCore',             '3.4.5'
+  pod 'CloudXMetaAdapter',      '~> 3.4.5'
+  pod 'CloudXVungleAdapter',    '~> 3.4.5'
+  pod 'CloudXInMobiAdapter',    '~> 3.4.5'
+  pod 'CloudXMintegralAdapter', '~> 3.4.5'
+  pod 'CloudXUnityAdsAdapter',  '~> 3.4.5'
+  pod 'UnityAds',               '4.17.0'
+  pod 'CloudXMagniteAdapter',   '~> 3.4.5'
+  pod 'CloudXMolocoAdapter',    '~> 3.4.5'
+  pod 'CloudXVerveAdapter',     '~> 3.4.5'
+  pod 'CloudXDigitalTurbineAdapter', '~> 3.4.5'
+  pod 'CloudXRenderer',         '~> 3.4.5'
+
+  post_install do |installer|
+    react_native_post_install(
+      installer,
+      config[:reactNativePath],
+      :mac_catalyst_enabled => false
+    )
+
+    # Xcode 26 enables explicit modules, which breaks this CocoaPods + React Native
+    # workspace with non-modular include failures across generated pod modules.
+    installer.pods_project.targets.each do |target|
+      target.build_configurations.each do |build_config|
+        build_config.build_settings['CLANG_WARN_NON_MODULAR_INCLUDES_IN_FRAMEWORK_MODULES'] = 'NO'
+        build_config.build_settings['CLANG_ALLOW_NON_MODULAR_INCLUDES_IN_FRAMEWORK_MODULES'] = 'YES'
+        build_config.build_settings['CLANG_ENABLE_EXPLICIT_MODULES'] = 'NO'
+        build_config.build_settings['SWIFT_ENABLE_EXPLICIT_MODULES'] = 'NO'
+      end
+    end
+
+    installer.aggregate_targets.each do |aggregate_target|
+      aggregate_target.user_project.native_targets.each do |target|
+        target.build_configurations.each do |build_config|
+          build_config.build_settings['CLANG_ENABLE_EXPLICIT_MODULES'] = 'NO'
+          build_config.build_settings['SWIFT_ENABLE_EXPLICIT_MODULES'] = 'NO'
+        end
+      end
+
+      aggregate_target.user_project.save
+    end
+  end
+end

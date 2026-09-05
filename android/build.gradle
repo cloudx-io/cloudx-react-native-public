@@ -1,0 +1,46 @@
+buildscript {
+    ext {
+        buildToolsVersion = "34.0.0"
+        minSdkVersion = 24
+        compileSdkVersion = 34
+        targetSdkVersion = 34
+        ndkVersion = "26.1.10909125"
+        kotlinVersion = "2.1.20"
+    }
+    repositories {
+        google()
+        mavenCentral()
+    }
+    dependencies {
+        classpath("com.android.tools.build:gradle")
+        classpath("com.facebook.react:react-native-gradle-plugin")
+        classpath("org.jetbrains.kotlin:kotlin-gradle-plugin")
+    }
+}
+
+apply plugin: "com.facebook.react.rootproject"
+
+allprojects {
+    buildscript {
+        dependencies {
+            classpath("org.jetbrains.kotlin:kotlin-gradle-plugin:${rootProject.ext.kotlinVersion}")
+        }
+    }
+    repositories {
+        // Required by io.cloudx:adapter-mintegral — the Mintegral SDK is hosted
+        // outside of Maven Central. Consumers of cloudx-react-native must add
+        // this repository when integrating the Mintegral adapter.
+        maven { url "https://dl-maven-android.mintegral.com/repository/mbridge_android_sdk_oversea" }
+        // Required by io.cloudx:adapter-verve — Verve HyBid SDK artifacts are
+        // hosted on Verve's Maven repository. Consumers of cloudx-react-native
+        // must add this repository when integrating the Verve adapter.
+        maven { url "https://verve.jfrog.io/artifactory/verve-gradle-release" }
+    }
+    configurations.all {
+        resolutionStrategy.eachDependency { details ->
+            if (details.requested.group == 'org.jetbrains.kotlin') {
+                details.useVersion(rootProject.ext.kotlinVersion)
+            }
+        }
+    }
+}
