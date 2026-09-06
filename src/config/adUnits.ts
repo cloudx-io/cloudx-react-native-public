@@ -15,38 +15,35 @@
  * ---------------------------------------------------------------------------
  * WHY THESE SPECIFIC CLOUDX AD UNITS
  * ---------------------------------------------------------------------------
- * These are the plain demo placements on the shared CloudX demo apps. They are
- * deliberately NOT the `gw-admob-*` placements that also exist on these same
- * app keys: those route AdMob demand *through* CloudX's Google Waterfall
- * adapter, which is the opposite of First Look. In First Look, GAM is the
- * publisher's own separate stack and CloudX never sees it.
+ * These are the placements of the public CloudX sample app, the same ones the
+ * public Unity demo uses. Both demos resolve against the app identifier
+ * `io.cloudx.sample` on iOS and Android, so the dashboard config is shared.
  *
- * iOS placements resolve against bundle id `cloudx.CloudXObjCRemotePods`.
- * Android placements resolve against applicationId `io.cloudx.demo.demoapp`.
- * Both are shared with the native ObjC/Swift/Android demo apps so the
- * dashboard config is identical.
+ * Do not point this at a `gw-admob-*` placement. Those route AdMob demand
+ * *through* CloudX's Google Waterfall adapter, which is the opposite of First
+ * Look — here GAM is the publisher's own separate stack and CloudX never sees
+ * it.
  *
  * ---------------------------------------------------------------------------
  * REQUIRED DASHBOARD SETUP
  * ---------------------------------------------------------------------------
- * The banner ad unit's refresh rate MUST be set to `0` (auto-refresh disabled)
- * in the CloudX dashboard. This app owns the refresh cycle; if the SDK also
- * runs its own 30s timer, two timers race over one slot.
+ * Set the banner ad unit's refresh rate to `0` (auto-refresh disabled) in the
+ * CloudX dashboard. This app owns the refresh cycle; if the SDK also runs its
+ * own 30s timer, two timers race over one slot and the SDK will swap an ad in
+ * while this app's cycle is mid-load.
  *
- * The in-tree `CloudXBannerView` / `CloudXMRECView` components follow the
- * dashboard setting — there is no client-side override for them.
- * `CloudXBannerAd.stopAutoRefresh()` only affects programmatic overlay ads
- * created through that API, so it is not a substitute here.
+ * There is no way to satisfy this from the client. `CloudXBannerView` and
+ * `CloudXMRECView` follow the dashboard setting, and
+ * `CloudXBannerAd.stopAutoRefresh()` resolves the ad unit id against the
+ * programmatic overlay ads created through that API — a component-rendered
+ * banner is not in that registry, so the call silently does nothing. Setting
+ * the dashboard value is the only option.
  *
- * Already satisfied for the two placements below — both read
- * `refresh_rate: 0ms` in the dashboard config, so nothing needs changing to run
- * this app, and nothing has to be flipped on the ad units that the native ObjC,
- * Swift, and Android demos share.
+ * To confirm the setting took effect, watch the SDK log while a banner is on
+ * screen. `Banner refresh scheduled in 30s` or `Starting auto-refresh` for your
+ * ad unit means refresh is still enabled:
  *
- * Note that `android-demo-banner-1` also carries `disabled_mediators: [cloudx]`.
- * That does NOT suppress CloudX demand — the unit serves at roughly 95% fill
- * (1058 bid requests → 1002 loads → 936 impressions over 14 days, winning
- * bidder `meta`). It is a publisher-side mediation flag, not a kill switch.
+ *   adb logcat | grep -E 'Banner refresh scheduled|auto-refresh'
  */
 
 import { Platform } from 'react-native';
@@ -73,36 +70,43 @@ export type FirstLookAdUnits = {
   cloudXBannerAdUnitId: string;
   /** CloudX interstitial placement. */
   cloudXInterstitialAdUnitId: string;
+  /*
+   * Carried so this config matches the public Unity demo's DemoConfig
+   * field-for-field. This demo renders a banner and an interstitial only, so
+   * nothing reads the three below yet.
+   */
+  /** CloudX MREC placement. Dashboard refresh rate must be 0. */
+  cloudXMrecAdUnitId: string;
+  /** CloudX app-open placement. */
+  cloudXAppOpenAdUnitId: string;
+  /** CloudX rewarded placement. */
+  cloudXRewardedAdUnitId: string;
   /** GAM banner ad unit. */
   gamBannerAdUnitId: string;
   /** GAM interstitial ad unit. */
   gamInterstitialAdUnitId: string;
 };
 
-/**
- * iOS — bundle `cloudx.CloudXObjCRemotePods`.
- *
- *   LyPxKhBFiUCd1xMLYQhGc → dashboard name "demo-banner-1"
- *   txZ7NmISq-MsuPH0ULKbD → dashboard name "demo-interstitial-1"
- */
+/** iOS — bundle id `io.cloudx.sample`. */
 const IOS: FirstLookAdUnits = {
-  cloudXAppKey: 'ihtOXvp3X9JlMQ5p0_RYL',
-  cloudXBannerAdUnitId: 'LyPxKhBFiUCd1xMLYQhGc',
-  cloudXInterstitialAdUnitId: 'txZ7NmISq-MsuPH0ULKbD',
+  cloudXAppKey: 'CmuKsWum6hx3yZK5SY_V_',
+  cloudXBannerAdUnitId: '8H3K7_7aSdkNHgYHe10aB',
+  cloudXInterstitialAdUnitId: '9SizbPM3Dctz71WM2BKpi',
+  cloudXMrecAdUnitId: '6V_LoFhGlpRxQW-6gf9Cy',
+  cloudXAppOpenAdUnitId: '3evNMg9P4E1pgRPyAYk9O',
+  cloudXRewardedAdUnitId: '7T2i4VWjsG2I4PM5vircU',
   gamBannerAdUnitId: TestIds.BANNER,
   gamInterstitialAdUnitId: TestIds.INTERSTITIAL,
 };
 
-/**
- * Android — applicationId `io.cloudx.demo.demoapp`.
- *
- *   XK2rmLLtVg3PPfbXL97Xz → dashboard name "android-demo-banner-1"
- *   uKD1pe6nvi4T_ZqO4PmgG → dashboard name "android-demo-interstitial-1"
- */
+/** Android — applicationId `io.cloudx.sample`. */
 const ANDROID: FirstLookAdUnits = {
-  cloudXAppKey: 'A0LRd8vpppXoOfwq2vXvx',
-  cloudXBannerAdUnitId: 'XK2rmLLtVg3PPfbXL97Xz',
-  cloudXInterstitialAdUnitId: 'uKD1pe6nvi4T_ZqO4PmgG',
+  cloudXAppKey: '0qE4q2MoJzoOkFQQKAtkt',
+  cloudXBannerAdUnitId: 'guDml31r4Ys6O6HroPJia',
+  cloudXInterstitialAdUnitId: 'PwIOPhOD0KMCB_aqz8c89',
+  cloudXMrecAdUnitId: 'TL6HTNWj7kkRUcodwGKSY',
+  cloudXAppOpenAdUnitId: 'BI0Whd5_o8ZIxkdHBS7X_',
+  cloudXRewardedAdUnitId: 'LZrqb2oz47LMG_TaaVtaR',
   gamBannerAdUnitId: TestIds.BANNER,
   gamInterstitialAdUnitId: TestIds.INTERSTITIAL,
 };

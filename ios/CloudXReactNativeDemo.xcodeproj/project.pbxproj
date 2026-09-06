@@ -289,7 +289,7 @@
 					"-ObjC",
 					"-lc++",
 				);
-				PRODUCT_BUNDLE_IDENTIFIER = cloudx.CloudXObjCRemotePods;
+				PRODUCT_BUNDLE_IDENTIFIER = io.cloudx.sample;
 				PRODUCT_NAME = CloudXReactNativeDemo;
 				SWIFT_ENABLE_EXPLICIT_MODULES = NO;
 				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
@@ -318,7 +318,7 @@
 					"-ObjC",
 					"-lc++",
 				);
-				PRODUCT_BUNDLE_IDENTIFIER = cloudx.CloudXObjCRemotePods;
+				PRODUCT_BUNDLE_IDENTIFIER = io.cloudx.sample;
 				PRODUCT_NAME = CloudXReactNativeDemo;
 				SWIFT_ENABLE_EXPLICIT_MODULES = NO;
 				SWIFT_VERSION = 5.0;

@@ -79,7 +79,7 @@ android {
 
     namespace "com.cloudxreactnativedemo"
     defaultConfig {
-        applicationId "io.cloudx.demo.demoapp"
+        applicationId "io.cloudx.sample"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
         versionCode 1

@@ -87,9 +87,15 @@ backgrounded app keeps running auctions for ads nobody can see.
 **1. Disable auto-refresh on both sides.** Two SDKs sharing one slot means two timers racing.
 
 - **CloudX** — set the banner ad unit's refresh rate to `0` in the [dashboard](https://docs.cloudx.io/en/dashboard/ad-units).
-  The in-tree `CloudXBannerView` / `CloudXMRECView` components follow the dashboard setting; there is
-  no client-side override for them. `CloudXBannerAd.stopAutoRefresh()` only affects programmatic
-  overlay ads created through that API, so it is not a substitute.
+  This cannot be done from the client. `CloudXBannerView` and `CloudXMRECView` follow the dashboard
+  setting, and `CloudXBannerAd.stopAutoRefresh()` resolves the ad unit id against the programmatic
+  overlay ads created through that API — a component-rendered banner is not in that registry, so the
+  call silently does nothing. Verify the dashboard value took effect by watching the log while a
+  banner is on screen; `Banner refresh scheduled in 30s` means refresh is still on:
+
+  ```bash
+  adb logcat | grep -E 'Banner refresh scheduled|auto-refresh'
+  ```
 - **GAM** — disable refresh for the ad unit in the Ad Manager UI, or use a non-refreshing unit.
 
 **2. Initialize both SDKs before any ad view mounts.** A CloudX ad view mounted before
