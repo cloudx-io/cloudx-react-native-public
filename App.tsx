@@ -132,7 +132,11 @@ function InterstitialDemo() {
     },
   );
 
-  loadRef.current = load;
+  // Assigned in an effect, not during render: a render that is discarded
+  // (StrictMode, or a concurrent render that never commits) must not write it.
+  useEffect(() => {
+    loadRef.current = load;
+  }, [load]);
 
   // A fill means demand is back; the next failure starts the backoff over.
   useEffect(() => {

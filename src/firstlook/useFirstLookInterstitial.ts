@@ -345,10 +345,16 @@ export function useFirstLookInterstitial(
      * observer instead of becoming an unhandled rejection.
      */
     if (gamInterstitial.loaded) {
-      Promise.resolve(gamInterstitial.show()).catch(error =>
-        observerRef.current?.onShowFailed?.('gam', String(error)),
+      /*
+       * onShown only once the presentation actually resolves. Emitting it
+       * before the promise settles would report a failed presentation as
+       * shown, and an observer counting impressions would record both
+       * onShown and onShowFailed for one attempt.
+       */
+      Promise.resolve(gamInterstitial.show()).then(
+        () => observerRef.current?.onShown?.('gam'),
+        error => observerRef.current?.onShowFailed?.('gam', String(error)),
       );
-      observerRef.current?.onShown?.('gam');
       return true;
     }
 
