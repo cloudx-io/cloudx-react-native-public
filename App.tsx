@@ -14,7 +14,7 @@
  *   4. src/firstlook/useFirstLookInterstitial.ts — the simpler fullscreen case
  */
 
-import React, { useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   Button,
   SafeAreaView,
@@ -28,7 +28,7 @@ import CloudX from 'cloudx-react-native';
 import mobileAds from 'react-native-google-mobile-ads';
 import { FirstLookBannerSlot } from './src/firstlook/FirstLookBannerSlot';
 import { useFirstLookInterstitial } from './src/firstlook/useFirstLookInterstitial';
-import { AD_UNITS } from './src/config/adUnits';
+import { AD_UNITS, MAX_BACKOFF_SECONDS } from './src/config/adUnits';
 
 export default function App() {
   const [ready, setReady] = useState(false);
@@ -84,6 +84,31 @@ export default function App() {
 }
 
 function InterstitialDemo() {
+  /*
+   * A failed opportunity is retried with a widening delay, never immediately.
+   * Both sources missing tends to mean no demand right now, and reloading on
+   * every failure would turn that into a request loop against both networks.
+   * A close is different — an ad was shown — so that reloads straight away.
+   */
+  const retryAttempt = useRef(0);
+  const retryTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const loadRef = useRef<() => void>(() => {});
+
+  const scheduleRetry = useCallback(() => {
+    const delaySeconds = Math.min(
+      2 ** retryAttempt.current,
+      MAX_BACKOFF_SECONDS,
+    );
+    retryAttempt.current += 1;
+    if (retryTimer.current) {
+      clearTimeout(retryTimer.current);
+    }
+    retryTimer.current = setTimeout(() => {
+      retryTimer.current = null;
+      loadRef.current();
+    }, delaySeconds * 1000);
+  }, []);
+
   const { isReady, load, show } = useFirstLookInterstitial(
     AD_UNITS.cloudXInterstitialAdUnitId,
     AD_UNITS.gamInterstitialAdUnitId,
@@ -96,17 +121,40 @@ function InterstitialDemo() {
       onClosed: () => load(),
       /*
        * A GAM request that went silent produces no close event, so nothing
-       * else would re-arm the slot. Loading here returns the next opportunity
-       * to CloudX, which is where First Look always restarts.
+       * else would re-arm the slot.
        */
-      onGamLoadTimeout: () => load(),
+      onGamLoadTimeout: scheduleRetry,
+      /*
+       * Both sources missed. Nothing closes and nothing times out on this
+       * path, so without this the slot would stay empty.
+       */
+      onGamFailed: scheduleRetry,
     },
   );
+
+  loadRef.current = load;
+
+  // A fill means demand is back; the next failure starts the backoff over.
+  useEffect(() => {
+    if (isReady) {
+      retryAttempt.current = 0;
+    }
+  }, [isReady]);
 
   // Prepare the placement when the screen is ready.
   useEffect(() => {
     load();
   }, [load]);
+
+  // Do not let a pending retry fire into a torn-down screen.
+  useEffect(
+    () => () => {
+      if (retryTimer.current) {
+        clearTimeout(retryTimer.current);
+      }
+    },
+    [],
+  );
 
   return (
     <View>

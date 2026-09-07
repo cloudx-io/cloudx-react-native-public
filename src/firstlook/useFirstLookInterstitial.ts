@@ -64,11 +64,20 @@ export type FirstLookInterstitialObserver = {
    * The GAM fallback request went silent past ATTEMPT_TIMEOUT_MS.
    *
    * Call `load()` from here. A request that never answers produces no close
-   * event, so this is the only signal that the opportunity is over — without a
+   * event, so nothing else reports that the opportunity is over — without a
    * load the slot stays `isReady === false` for the rest of the session. As
    * with `onClosed`, the hook does not reload for you.
    */
   onGamLoadTimeout?: () => void;
+  /**
+   * The GAM fallback answered with an error — both sources missed, so the
+   * opportunity is over.
+   *
+   * Call `load()` from here too. This is the common no-fill path (CloudX
+   * misses, then GAM misses) and it produces no close and no timeout, so it is
+   * the only signal for it.
+   */
+  onGamFailed?: () => void;
   /**
    * An ad reported loaded but failed to present.
    *
@@ -198,8 +207,12 @@ export function useFirstLookInterstitial(
         state.current.isGamLoaded = false;
         setIsGamLoaded(false);
         gamLoadRequested.current = false;
+        // Flags first, then the observer: both callbacks are places an app
+        // reloads from, and load() reads them.
         if (type === AdEventType.CLOSED) {
           observerRef.current?.onClosed?.('gam');
+        } else {
+          observerRef.current?.onGamFailed?.();
         }
       }
     });
@@ -233,9 +246,15 @@ export function useFirstLookInterstitial(
    * The record deliberately survives a gamAdUnitId change too. Clearing it
    * there would re-enter the fallback for an error already handled and request
    * GAM on the new placement without CloudX ever getting a first look at it.
-   * Nothing gets stuck: the effect cleanup clears both flags, so the app's next
-   * load() passes every guard and starts at CloudX, which is where a new
-   * opportunity belongs.
+   * The listener effect's cleanup (it keys on gamInterstitial) clears both
+   * flags, so the app's next load() passes every guard and starts at CloudX,
+   * which is where a new opportunity belongs.
+   *
+   * One caveat, deliberately not papered over: changing gamAdUnitId while a
+   * fallback is still in flight abandons that request without any callback —
+   * no fill, no timeout, no error, because the timer went with the old
+   * instance. Call load() yourself after changing the placement. The demo
+   * passes a constant id and never hits this.
    */
   useEffect(() => {
     if (!cloudXError) {
