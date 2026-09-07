@@ -192,6 +192,27 @@ export function useFirstLookInterstitial(
    */
   const presentingRef = useRef(false);
 
+  /*
+   * Synchronous mirror of "a CloudX load is in flight". isCloudXLoading only
+   * reaches state.current on the next render, so two load() calls in one tick
+   * — a retry timer landing on the same tick as a tap, or StrictMode running
+   * mount effects twice — would both pass the guards and issue two requests.
+   * The GAM leg already had gamLoadRequested for exactly this; this is its
+   * counterpart.
+   */
+  const cloudXLoadRequested = useRef(false);
+
+  /*
+   * Release the in-flight latch once the SDK reports it is done, whichever way
+   * it went: a fill clears isCloudXLoading, and so does a failure (which also
+   * sets cloudXError and drives the fallback below).
+   */
+  useEffect(() => {
+    if (!isCloudXLoading) {
+      cloudXLoadRequested.current = false;
+    }
+  }, [isCloudXLoading]);
+
   const clearGamLoadTimer = useCallback(() => {
     if (gamLoadTimer.current) {
       clearTimeout(gamLoadTimer.current);
@@ -382,6 +403,7 @@ export function useFirstLookInterstitial(
     const current = state.current;
 
     if (
+      cloudXLoadRequested.current ||
       current.isCloudXLoading ||
       current.isCloudXLoaded ||
       current.isGamLoaded ||
@@ -390,6 +412,7 @@ export function useFirstLookInterstitial(
       return;
     }
 
+    cloudXLoadRequested.current = true;
     loadCloudX();
   }, [loadCloudX]);
 
