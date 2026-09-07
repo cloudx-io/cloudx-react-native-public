@@ -166,6 +166,16 @@ export function useFirstLookInterstitial(
   // The CloudX error this hook has already fallen back for.
   const handledErrorRef = useRef<string | null>(null);
 
+  /*
+   * Set from the moment either SDK is asked to present until that ad is gone.
+   * Neither source clears its own ready flag on show — CloudX stays loaded
+   * until its hidden event, and the GAM object keeps `loaded` true until
+   * CLOSED/ERROR — so without this a second show() (a double tap is enough)
+   * asks the same fullscreen ad to present again. On the CloudX path that also
+   * risks starting the GAM fallback while the first ad is still on screen.
+   */
+  const presentingRef = useRef(false);
+
   const clearGamLoadTimer = useCallback(() => {
     if (gamLoadTimer.current) {
       clearTimeout(gamLoadTimer.current);
@@ -190,6 +200,7 @@ export function useFirstLookInterstitial(
         // Before the observer runs, not after: `onClosed` is where the app
         // reloads, and the guards in load() read state.current.
         state.current.isCloudXLoaded = false;
+        presentingRef.current = false;
         observerRef.current?.onClosed?.('cloudx');
       }),
     [cloudXAdUnitId],
@@ -221,6 +232,7 @@ export function useFirstLookInterstitial(
         state.current.isGamLoaded = false;
         setIsGamLoaded(false);
         gamLoadRequested.current = false;
+        presentingRef.current = false;
         // Flags first, then the observer: both callbacks are places an app
         // reloads from, and load() reads them.
         if (type === AdEventType.CLOSED) {
@@ -276,6 +288,10 @@ export function useFirstLookInterstitial(
       handledErrorRef.current = null;
       return;
     }
+
+    // A display failure surfaces here and never produces a hidden event, so
+    // this is the only place that can release the latch on that path.
+    presentingRef.current = false;
 
     const errorKey = String(cloudXError);
     if (
@@ -341,7 +357,14 @@ export function useFirstLookInterstitial(
   const show = useCallback((): boolean => {
     const current = state.current;
 
+    // Already presenting: report not-shown rather than asking an ad that is
+    // on screen to present again.
+    if (presentingRef.current) {
+      return false;
+    }
+
     if (current.isCloudXLoaded) {
+      presentingRef.current = true;
       showCloudX();
       observerRef.current?.onShown?.('cloudx');
       return true;
@@ -365,9 +388,11 @@ export function useFirstLookInterstitial(
        * event instead. A rejection is a real invocation failure (on Android,
        * no current Activity), so it is worth reporting.
        */
-      Promise.resolve(gamInterstitial.show()).catch(error =>
-        observerRef.current?.onShowFailed?.('gam', String(error)),
-      );
+      presentingRef.current = true;
+      Promise.resolve(gamInterstitial.show()).catch(error => {
+        presentingRef.current = false;
+        observerRef.current?.onShowFailed?.('gam', String(error));
+      });
       return true;
     }
 

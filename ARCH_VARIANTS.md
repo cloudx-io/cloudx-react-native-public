@@ -31,10 +31,10 @@ Controlled by the `newArchEnabled` Gradle property. See `android/gradle.properti
 
 ```bash
 # OldArch (Paper) — default
-./gradlew :app:assembleRelease
+(cd android && ./gradlew :app:assembleRelease)
 
 # NewArch (Fabric + TurboModules)
-./gradlew :app:assembleRelease -PnewArchEnabled=true
+(cd android && ./gradlew :app:assembleRelease -PnewArchEnabled=true)
 ```
 
 Unlike iOS, Android can produce both variants from the same working tree by varying the CLI flag per invocation.
