@@ -60,7 +60,14 @@ export type FirstLookInterstitialObserver = {
   onCloudXError?: (error: string) => void;
   onGamFallbackRequested?: () => void;
   onGamLoaded?: () => void;
-  /** The GAM fallback request went silent past ATTEMPT_TIMEOUT_MS. */
+  /**
+   * The GAM fallback request went silent past ATTEMPT_TIMEOUT_MS.
+   *
+   * Call `load()` from here. A request that never answers produces no close
+   * event, so this is the only signal that the opportunity is over — without a
+   * load the slot stays `isReady === false` for the rest of the session. As
+   * with `onClosed`, the hook does not reload for you.
+   */
   onGamLoadTimeout?: () => void;
   /**
    * An ad reported loaded but failed to present.
@@ -212,15 +219,6 @@ export function useFirstLookInterstitial(
   }, [clearGamLoadTimer, gamInterstitial]);
 
   /*
-   * A change of gamAdUnitId is a different placement, not a repeat of the
-   * error already handled. Declared before the fallback effect so it resets
-   * first; without it the guard below would swallow the new unit's load.
-   */
-  useEffect(() => {
-    handledErrorRef.current = null;
-  }, [gamAdUnitId]);
-
-  /*
    * The single fallback trigger: a CloudX error (load OR show) starts GAM. GAM
    * is unreachable by any other path, which is what guarantees exactly one
    * source is ever loading.
@@ -231,6 +229,13 @@ export function useFirstLookInterstitial(
    * point, because useCloudXInterstitial clears it only on the next load() or
    * a fill. Without this guard the recovery would immediately request GAM
    * again and arm another timeout, forever.
+   *
+   * The record deliberately survives a gamAdUnitId change too. Clearing it
+   * there would re-enter the fallback for an error already handled and request
+   * GAM on the new placement without CloudX ever getting a first look at it.
+   * Nothing gets stuck: the effect cleanup clears both flags, so the app's next
+   * load() passes every guard and starts at CloudX, which is where a new
+   * opportunity belongs.
    */
   useEffect(() => {
     if (!cloudXError) {
