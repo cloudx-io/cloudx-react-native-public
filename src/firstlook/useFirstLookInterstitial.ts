@@ -87,6 +87,10 @@ export type FirstLookInterstitialObserver = {
    * compatible if that changes.
    */
   onShowFailed?: (source: 'cloudx' | 'gam', error: string) => void;
+  /**
+   * An ad was presented. For `'gam'` this fires on the SDK's OPENED event, so
+   * it means the ad actually appeared — not merely that show() was called.
+   */
   onShown?: (source: 'cloudx' | 'gam') => void;
   /**
    * The ad closed and the opportunity is over. Call `load()` from here to
@@ -193,6 +197,16 @@ export function useFirstLookInterstitial(
 
   useEffect(() => {
     const unsubscribe = gamInterstitial.addAdEventsListener(({ type }) => {
+      /*
+       * OPENED is the only trustworthy "it is on screen" signal. The plugin
+       * resolves the show() promise as soon as it has called the native show
+       * (Android resolves on the UI thread right after adHelper.show()), so
+       * resolution says the call was made, not that anything was presented.
+       * The SDK reports actual presentation here.
+       */
+      if (type === AdEventType.OPENED) {
+        observerRef.current?.onShown?.('gam');
+      }
       if (type === AdEventType.LOADED) {
         clearGamLoadTimer();
         state.current.isGamLoaded = true;
@@ -346,14 +360,13 @@ export function useFirstLookInterstitial(
      */
     if (gamInterstitial.loaded) {
       /*
-       * onShown only once the presentation actually resolves. Emitting it
-       * before the promise settles would report a failed presentation as
-       * shown, and an observer counting impressions would record both
-       * onShown and onShowFailed for one attempt.
+       * Rejection only. A resolved promise means the native show call was
+       * made, not that an ad appeared — onShown is emitted from the OPENED
+       * event instead. A rejection is a real invocation failure (on Android,
+       * no current Activity), so it is worth reporting.
        */
-      Promise.resolve(gamInterstitial.show()).then(
-        () => observerRef.current?.onShown?.('gam'),
-        error => observerRef.current?.onShowFailed?.('gam', String(error)),
+      Promise.resolve(gamInterstitial.show()).catch(error =>
+        observerRef.current?.onShowFailed?.('gam', String(error)),
       );
       return true;
     }
