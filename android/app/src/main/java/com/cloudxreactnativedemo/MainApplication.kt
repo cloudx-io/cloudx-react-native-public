@@ -35,8 +35,10 @@ class MainApplication : Application(), ReactApplication {
   override fun onCreate() {
     super.onCreate()
 
-    // Debug only: verbose SDK logging is noisy and prints diagnostic detail
-    // that a release build has no reason to emit.
+    /*
+     * Debug only: verbose SDK logging is noisy and prints diagnostic detail
+     * that a release build has no reason to emit.
+     */
     if (BuildConfig.DEBUG) {
       CloudX.setMinLogLevel(CloudXLogLevel.VERBOSE)
     }

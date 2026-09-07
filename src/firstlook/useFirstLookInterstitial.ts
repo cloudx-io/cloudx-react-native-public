@@ -63,11 +63,14 @@ export type FirstLookInterstitialObserver = {
   /** The GAM fallback request went silent past ATTEMPT_TIMEOUT_MS. */
   onGamLoadTimeout?: () => void;
   /**
-   * The GAM ad reported loaded but failed to present. CloudX display failures
-   * do not arrive here — showCloudX() returns void, and the SDK reports them
-   * as an error on the load path, which is what triggers the fallback.
+   * An ad reported loaded but failed to present.
+   *
+   * Only `'gam'` is emitted today: showCloudX() returns void, and CloudX
+   * display failures arrive as an error on the load path, which is what
+   * triggers the fallback. The union keeps both sources so this stays source
+   * compatible if that changes.
    */
-  onShowFailed?: (source: 'gam', error: string) => void;
+  onShowFailed?: (source: 'cloudx' | 'gam', error: string) => void;
   onShown?: (source: 'cloudx' | 'gam') => void;
   /**
    * The ad closed and the opportunity is over. Call `load()` from here to
@@ -207,6 +210,15 @@ export function useFirstLookInterstitial(
       setIsGamLoaded(false);
     };
   }, [clearGamLoadTimer, gamInterstitial]);
+
+  /*
+   * A change of gamAdUnitId is a different placement, not a repeat of the
+   * error already handled. Declared before the fallback effect so it resets
+   * first; without it the guard below would swallow the new unit's load.
+   */
+  useEffect(() => {
+    handledErrorRef.current = null;
+  }, [gamAdUnitId]);
 
   /*
    * The single fallback trigger: a CloudX error (load OR show) starts GAM. GAM

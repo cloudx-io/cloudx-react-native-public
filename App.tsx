@@ -88,10 +88,18 @@ function InterstitialDemo() {
     AD_UNITS.cloudXInterstitialAdUnitId,
     AD_UNITS.gamInterstitialAdUnitId,
     {
-      // Prepare the next opportunity once the current one is over. Showing
-      // consumes the ad, so without this the slot is dead after the first
-      // impression — isReady never returns true again.
+      /*
+       * Prepare the next opportunity once the current one is over. Showing
+       * consumes the ad, so without this the slot is dead after the first
+       * impression — isReady never returns true again.
+       */
       onClosed: () => load(),
+      /*
+       * A GAM request that went silent produces no close event, so nothing
+       * else would re-arm the slot. Loading here returns the next opportunity
+       * to CloudX, which is where First Look always restarts.
+       */
+      onGamLoadTimeout: () => load(),
     },
   );
 
