@@ -62,6 +62,8 @@ export type FirstLookInterstitialObserver = {
   onGamLoaded?: () => void;
   /** The GAM fallback request went silent past ATTEMPT_TIMEOUT_MS. */
   onGamLoadTimeout?: () => void;
+  /** show() reported success but the ad failed to present. */
+  onShowFailed?: (source: 'cloudx' | 'gam', error: string) => void;
   onShown?: (source: 'cloudx' | 'gam') => void;
   /**
    * The ad closed and the opportunity is over. Call `load()` from here to
@@ -90,9 +92,19 @@ export function useFirstLookInterstitial(
    * units, and the `useInterstitialAd` hook does not surface GAM-specific
    * event types, so the GAM interstitial is managed directly.
    */
+  /*
+   * Bumped to abandon a GAM request that never answered. The plugin's load()
+   * early-returns while its internal _isLoadCalled is set, and only a CLOSED
+   * or ERROR event clears that — so a silent request makes every later load()
+   * on the same object a no-op. Clearing our own latch is not enough; the
+   * object itself has to be replaced.
+   */
+  const [gamGeneration, setGamGeneration] = useState(0);
+
   const gamInterstitial = useMemo(
     () => GAMInterstitialAd.createForAdRequest(gamAdUnitId),
-    [gamAdUnitId],
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [gamAdUnitId, gamGeneration],
   );
   const [isGamLoaded, setIsGamLoaded] = useState(false);
   const gamLoadRequested = useRef(false);
@@ -177,6 +189,15 @@ export function useFirstLookInterstitial(
     return () => {
       clearGamLoadTimer();
       unsubscribe();
+      /*
+       * These flags describe the instance being torn down, so they must not
+       * carry over — whether it is being replaced after a timeout or because
+       * the caller changed gamAdUnitId. Leaving them set would make load()
+       * early-return against a fresh object that has nothing loaded.
+       */
+      gamLoadRequested.current = false;
+      state.current.isGamLoaded = false;
+      setIsGamLoaded(false);
     };
   }, [clearGamLoadTimer, gamInterstitial]);
 
@@ -198,8 +219,15 @@ export function useFirstLookInterstitial(
       clearGamLoadTimer();
       gamLoadTimer.current = setTimeout(() => {
         gamLoadTimer.current = null;
-        gamLoadRequested.current = false;
         observerRef.current?.onGamLoadTimeout?.();
+        /*
+         * Replacing the ad object is what actually recovers: the abandoned
+         * request keeps running inside the plugin, and if it ever fills, that
+         * fill belongs to an instance nothing reads any more. The cleanup
+         * above clears the latch, so the next opportunity starts clean at
+         * CloudX rather than racing a request we can no longer see.
+         */
+        setGamGeneration(generation => generation + 1);
       }, ATTEMPT_TIMEOUT_MS);
       gamInterstitial.load();
     }
@@ -230,13 +258,20 @@ export function useFirstLookInterstitial(
     }
 
     /*
-     * `gamInterstitial.loaded` rather than the mirrored flag: show() throws if
-     * the ad is not actually loaded, and the mirror lags a native CLOSED/ERROR
-     * by one render. Reading the live value keeps the documented contract —
-     * show() reports whether an ad was shown, it never throws.
+     * `gamInterstitial.loaded` rather than the mirrored flag: the plugin's
+     * show() throws when the ad is not loaded, and the mirror lags a native
+     * CLOSED/ERROR by one render, so the mirror would let that throw through.
+     *
+     * The returned promise still has to be handled. It rejects if the native
+     * side cannot present (on Android, no resumed activity), and by then this
+     * function has already returned true — so the app was told an ad was
+     * shown. Nothing here can un-tell it; the rejection is surfaced to the
+     * observer instead of becoming an unhandled rejection.
      */
     if (gamInterstitial.loaded) {
-      gamInterstitial.show();
+      Promise.resolve(gamInterstitial.show()).catch(error =>
+        observerRef.current?.onShowFailed?.('gam', String(error)),
+      );
       observerRef.current?.onShown?.('gam');
       return true;
     }
