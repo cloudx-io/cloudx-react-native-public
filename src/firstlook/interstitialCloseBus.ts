@@ -28,31 +28,63 @@
  *
  * A publisher with a single interstitial does not need any of this — subscribe
  * directly. It matters as soon as anything else in the app also wants the event.
+ *
+ * KNOWN LIMITATION
+ * ----------------
+ * This module can itself be deafened. It subscribes through the same singleton
+ * `addAdHiddenEventListener`, so any other call to that method anywhere in the
+ * app replaces this subscription, and `installed` stays true so it is never
+ * reinstalled — every listener goes quiet with no error. Subscribing to the
+ * shared NativeEventEmitter directly would be immune, but cloudx-react-native
+ * 3.4.7 does not export it (`cloudXEventEmitter` was added later). Until this
+ * app moves to a version that exports it, treat this module as the single
+ * owner of the interstitial hidden event and do not call
+ * `addAdHiddenEventListener` anywhere else.
  */
 
 import { CloudXInterstitialAd } from 'cloudx-react-native';
 
 type CloseListener = () => void;
 
-const listeners = new Set<CloseListener>();
+/*
+ * Keyed by ad unit id. The SDK delivers the closed ad's id on the event, and an
+ * app with more than one interstitial placement must not treat a close on unit
+ * A as a close on unit B — the hook watching B would reload an opportunity that
+ * never happened.
+ */
+const listeners = new Map<string, Set<CloseListener>>();
 let installed = false;
 
 function ensureInstalled(): void {
   if (installed) return;
   installed = true;
-  CloudXInterstitialAd.addAdHiddenEventListener(() => {
+  CloudXInterstitialAd.addAdHiddenEventListener(adInfo => {
+    const forAdUnit = listeners.get(adInfo?.adUnitId ?? '');
+    if (!forAdUnit) {
+      return;
+    }
     // Copy before iterating: a listener may unregister itself in response.
-    for (const listener of [...listeners]) {
+    for (const listener of [...forAdUnit]) {
       listener();
     }
   });
 }
 
-/** Registers a close listener. Returns an unsubscribe function. */
-export function onInterstitialClosed(listener: CloseListener): () => void {
+/**
+ * Registers a close listener for one ad unit. Returns an unsubscribe function.
+ */
+export function onInterstitialClosed(
+  adUnitId: string,
+  listener: CloseListener,
+): () => void {
   ensureInstalled();
-  listeners.add(listener);
+  const forAdUnit = listeners.get(adUnitId) ?? new Set<CloseListener>();
+  forAdUnit.add(listener);
+  listeners.set(adUnitId, forAdUnit);
   return () => {
-    listeners.delete(listener);
+    forAdUnit.delete(listener);
+    if (forAdUnit.size === 0) {
+      listeners.delete(adUnitId);
+    }
   };
 }

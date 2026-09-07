@@ -53,12 +53,15 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { AdEventType, GAMInterstitialAd } from 'react-native-google-mobile-ads';
 import { useCloudXInterstitial } from 'cloudx-react-native';
+import { ATTEMPT_TIMEOUT_MS } from '../config/adUnits';
 import { onInterstitialClosed } from './interstitialCloseBus';
 
 export type FirstLookInterstitialObserver = {
   onCloudXError?: (error: string) => void;
   onGamFallbackRequested?: () => void;
   onGamLoaded?: () => void;
+  /** The GAM fallback request went silent past ATTEMPT_TIMEOUT_MS. */
+  onGamLoadTimeout?: () => void;
   onShown?: (source: 'cloudx' | 'gam') => void;
   /**
    * The ad closed and the opportunity is over. Call `load()` from here to
@@ -97,42 +100,15 @@ export function useFirstLookInterstitial(
   const observerRef = useRef(observer);
   observerRef.current = observer;
 
-  // CloudX close signal.
-  //
-  // useCloudXInterstitial exposes {isLoaded, isLoading, error, load, show,
-  // destroy} and no close/hidden state, so without this the CloudX leg has
-  // nothing to react to when an ad is dismissed: the ad is consumed, isReady
-  // goes false, and the slot stays dead for the rest of the session. The GAM
-  // leg below already handles its own CLOSED; this makes the two symmetric.
-  //
-  // Routed through interstitialCloseBus rather than subscribing directly,
-  // because the SDK's hidden-event listener is singleton — see that module for
-  // why subscribing here directly silently breaks with two hook instances.
-  useEffect(
-    () => onInterstitialClosed(() => observerRef.current?.onClosed?.('cloudx')),
-    [],
-  );
-
-  useEffect(() => {
-    const unsubscribe = gamInterstitial.addAdEventsListener(({ type }) => {
-      if (type === AdEventType.LOADED) {
-        setIsGamLoaded(true);
-        observerRef.current?.onGamLoaded?.();
-      }
-      // CLOSED clears the flag as well as ERROR: a shown-and-dismissed ad is
-      // consumed, so the next opportunity must start fresh at CloudX rather
-      // than believing GAM still has a fill in hand.
-      if (type === AdEventType.ERROR || type === AdEventType.CLOSED) {
-        setIsGamLoaded(false);
-        gamLoadRequested.current = false;
-        if (type === AdEventType.CLOSED) {
-          observerRef.current?.onClosed?.('gam');
-        }
-      }
-    });
-    return unsubscribe;
-  }, [gamInterstitial]);
-
+  /*
+   * Mirrors the React state for callbacks that run outside render.
+   *
+   * Assigned on every render, so between a native event and the re-render it
+   * triggers, these fields are one tick stale. Every handler that both changes
+   * a flag and calls back into the app therefore writes the field here first —
+   * see the close handlers below. Without that, a `load()` made from `onClosed`
+   * reads the pre-close values and skips the load entirely.
+   */
   const state = useRef({
     isGamLoaded,
     isCloudXLoaded,
@@ -145,6 +121,65 @@ export function useFirstLookInterstitial(
     isCloudXLoading,
   };
 
+  // Cleared when GAM answers; see the timeout below for why it needs one.
+  const gamLoadTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const clearGamLoadTimer = useCallback(() => {
+    if (gamLoadTimer.current) {
+      clearTimeout(gamLoadTimer.current);
+      gamLoadTimer.current = null;
+    }
+  }, []);
+
+  // CloudX close signal.
+  //
+  // useCloudXInterstitial exposes {isLoaded, isLoading, error, load, show,
+  // destroy} and no close/hidden state, so without this the CloudX leg has
+  // nothing to react to when an ad is dismissed: the ad is consumed, isReady
+  // goes false, and the slot stays dead for the rest of the session. The GAM
+  // leg below already handles its own CLOSED; this makes the two symmetric.
+  //
+  // Routed through interstitialCloseBus rather than subscribing directly,
+  // because the SDK's hidden-event listener is singleton — see that module for
+  // why subscribing here directly silently breaks with two hook instances.
+  useEffect(
+    () =>
+      onInterstitialClosed(cloudXAdUnitId, () => {
+        // Before the observer runs, not after: `onClosed` is where the app
+        // reloads, and the guards in load() read state.current.
+        state.current.isCloudXLoaded = false;
+        observerRef.current?.onClosed?.('cloudx');
+      }),
+    [cloudXAdUnitId],
+  );
+
+  useEffect(() => {
+    const unsubscribe = gamInterstitial.addAdEventsListener(({ type }) => {
+      if (type === AdEventType.LOADED) {
+        clearGamLoadTimer();
+        state.current.isGamLoaded = true;
+        setIsGamLoaded(true);
+        observerRef.current?.onGamLoaded?.();
+      }
+      // CLOSED clears the flag as well as ERROR: a shown-and-dismissed ad is
+      // consumed, so the next opportunity must start fresh at CloudX rather
+      // than believing GAM still has a fill in hand.
+      if (type === AdEventType.ERROR || type === AdEventType.CLOSED) {
+        clearGamLoadTimer();
+        state.current.isGamLoaded = false;
+        setIsGamLoaded(false);
+        gamLoadRequested.current = false;
+        if (type === AdEventType.CLOSED) {
+          observerRef.current?.onClosed?.('gam');
+        }
+      }
+    });
+    return () => {
+      clearGamLoadTimer();
+      unsubscribe();
+    };
+  }, [clearGamLoadTimer, gamInterstitial]);
+
   // The single fallback trigger: a CloudX error (load OR show) starts GAM. GAM
   // is unreachable by any other path, which is what guarantees exactly one
   // source is ever loading.
@@ -153,9 +188,22 @@ export function useFirstLookInterstitial(
       gamLoadRequested.current = true;
       observerRef.current?.onCloudXError?.(String(cloudXError));
       observerRef.current?.onGamFallbackRequested?.();
+      /*
+       * The latch stops a second GAM load racing the first, but GAM answering
+       * is what clears it. A request that never calls back would leave it set
+       * for the rest of the session, and every later load() would return early
+       * — the slot would be dead with nothing to rescue it. Same reasoning as
+       * ATTEMPT_TIMEOUT_MS in useFirstLookBanner.
+       */
+      clearGamLoadTimer();
+      gamLoadTimer.current = setTimeout(() => {
+        gamLoadTimer.current = null;
+        gamLoadRequested.current = false;
+        observerRef.current?.onGamLoadTimeout?.();
+      }, ATTEMPT_TIMEOUT_MS);
       gamInterstitial.load();
     }
-  }, [cloudXError, gamInterstitial]);
+  }, [clearGamLoadTimer, cloudXError, gamInterstitial]);
 
   const load = useCallback(() => {
     const current = state.current;
@@ -181,7 +229,13 @@ export function useFirstLookInterstitial(
       return true;
     }
 
-    if (current.isGamLoaded) {
+    /*
+     * `gamInterstitial.loaded` rather than the mirrored flag: show() throws if
+     * the ad is not actually loaded, and the mirror lags a native CLOSED/ERROR
+     * by one render. Reading the live value keeps the documented contract —
+     * show() reports whether an ad was shown, it never throws.
+     */
+    if (gamInterstitial.loaded) {
       gamInterstitial.show();
       observerRef.current?.onShown?.('gam');
       return true;

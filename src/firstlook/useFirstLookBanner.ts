@@ -126,7 +126,7 @@ export function useFirstLookBanner(observer?: FirstLookBannerObserver) {
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const attemptTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   // Lets startAttempt arm the timeout before onAdLoadFailed is defined.
-  const failAttemptRef = useRef<() => void>(() => {});
+  const failAttemptRef = useRef<(key: number) => void>(() => {});
   // Distinguishes "this attempt failed" from "this attempt never called back",
   // which an observer needs to tell a real no-fill from a silent source.
   const timedOut = useRef(false);
@@ -162,12 +162,12 @@ export function useFirstLookBanner(observer?: FirstLookBannerObserver) {
     if (attemptTimer.current) {
       clearTimeout(attemptTimer.current);
     }
+    const key = nextKey.current++;
     attemptTimer.current = setTimeout(() => {
       timedOut.current = true;
       observerRef.current?.onAttemptTimeout?.(source);
-      failAttemptRef.current();
+      failAttemptRef.current(key);
     }, ATTEMPT_TIMEOUT_MS);
-    const key = nextKey.current++;
     observerRef.current?.onAttemptStart?.(source, key);
     setLoading({ source, key });
   }, []);
@@ -211,9 +211,17 @@ export function useFirstLookBanner(observer?: FirstLookBannerObserver) {
 
   // The off-screen ad filled: swap it in. Replacing `displayed` unmounts the
   // previous ad view, which destroys its native ad.
-  const onAdLoaded = useCallback(() => {
+  const onAdLoaded = useCallback((key: number) => {
     const filled = loadingRef.current;
-    if (!filled) {
+    /*
+     * Ignore anything that is not the attempt currently loading off-screen.
+     * The displayed ad shares these handlers, and it can emit a load of its
+     * own — an SDK or Ad Manager refresh that was left enabled fires
+     * onAdLoaded on a view that is already on screen. Without this check that
+     * event would promote the hidden attempt before it had filled, blanking
+     * the slot for a whole cycle.
+     */
+    if (!filled || filled.key !== key) {
       return;
     }
     if (attemptTimer.current) {
@@ -235,9 +243,11 @@ export function useFirstLookBanner(observer?: FirstLookBannerObserver) {
 
   // CloudX no-fill falls back to GAM for this cycle. A GAM no-fill means both
   // sources missed, so retry from CloudX with an exponential delay.
-  const onAdLoadFailed = useCallback(() => {
+  const onAdLoadFailed = useCallback((key: number) => {
     const failed = loadingRef.current;
-    if (!failed) {
+    // Same guard as onAdLoaded: a refresh failure on the displayed ad must not
+    // abort the CloudX attempt that is in flight behind it.
+    if (!failed || failed.key !== key) {
       return;
     }
     if (attemptTimer.current) {

@@ -34,8 +34,8 @@ type SlotAdProps = {
   attempt: FirstLookAttempt;
   hidden: boolean;
   cloudXAdUnitId: string;
-  onLoaded: () => void;
-  onLoadFailed: () => void;
+  onLoaded: (key: number) => void;
+  onLoadFailed: (key: number) => void;
 };
 
 function SlotAd({
@@ -58,15 +58,15 @@ function SlotAd({
       {attempt.source === 'cloudx' ? (
         <CloudXBannerView
           adUnitId={cloudXAdUnitId}
-          onAdLoaded={onLoaded}
-          onAdLoadFailed={onLoadFailed}
+          onAdLoaded={() => onLoaded(attempt.key)}
+          onAdLoadFailed={() => onLoadFailed(attempt.key)}
         />
       ) : (
         <GAMBannerAd
           unitId={AD_UNITS.gamBannerAdUnitId}
           sizes={[BannerAdSize.BANNER]}
-          onAdLoaded={onLoaded}
-          onAdFailedToLoad={onLoadFailed}
+          onAdLoaded={() => onLoaded(attempt.key)}
+          onAdFailedToLoad={() => onLoadFailed(attempt.key)}
         />
       )}
     </View>
@@ -113,6 +113,11 @@ export function FirstLookBannerSlot({
 }
 
 const styles = StyleSheet.create({
+  /*
+   * Phone banner size. On a tablet CloudXBannerView self-sizes to 728x90 while
+   * the GAM leg stays 320x50, so a tablet layout needs this slot widened and
+   * the GAM `sizes` changed to match — otherwise the CloudX ad is clipped.
+   */
   slot: { width: 320, height: 50, alignSelf: 'center' },
   hidden: { position: 'absolute', opacity: 0 },
 });

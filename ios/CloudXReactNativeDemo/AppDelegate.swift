@@ -2,7 +2,6 @@ import UIKit
 import React
 import React_RCTAppDelegate
 import AppTrackingTransparency
-import AdSupport
 
 @main
 class AppDelegate: RCTAppDelegate {
@@ -15,6 +14,10 @@ class AppDelegate: RCTAppDelegate {
      * Force test mode. This is a demo app running against shared demo
      * placements, so it must serve test creatives rather than burn real fill
      * against demo traffic. Remove both defaults in a production integration.
+     *
+     * iOS only. cloudx-react-native 3.4.7 exposes no equivalent toggle on
+     * Android, so the Android build of this demo runs live demand against the
+     * same placements. Keep that in mind when reading dashboard numbers.
      */
     UserDefaults.standard.set(true, forKey: "CLXCore_Internal_ForceTestMode")
     UserDefaults.standard.set(true, forKey: "CLXMetaTestModeEnabled")
