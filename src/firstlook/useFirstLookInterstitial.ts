@@ -62,8 +62,12 @@ export type FirstLookInterstitialObserver = {
   onGamLoaded?: () => void;
   /** The GAM fallback request went silent past ATTEMPT_TIMEOUT_MS. */
   onGamLoadTimeout?: () => void;
-  /** show() reported success but the ad failed to present. */
-  onShowFailed?: (source: 'cloudx' | 'gam', error: string) => void;
+  /**
+   * The GAM ad reported loaded but failed to present. CloudX display failures
+   * do not arrive here — showCloudX() returns void, and the SDK reports them
+   * as an error on the load path, which is what triggers the fallback.
+   */
+  onShowFailed?: (source: 'gam', error: string) => void;
   onShown?: (source: 'cloudx' | 'gam') => void;
   /**
    * The ad closed and the opportunity is over. Call `load()` from here to
@@ -136,6 +140,9 @@ export function useFirstLookInterstitial(
   // Cleared when GAM answers; see the timeout below for why it needs one.
   const gamLoadTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
+  // The CloudX error this hook has already fallen back for.
+  const handledErrorRef = useRef<string | null>(null);
+
   const clearGamLoadTimer = useCallback(() => {
     if (gamLoadTimer.current) {
       clearTimeout(gamLoadTimer.current);
@@ -201,36 +208,69 @@ export function useFirstLookInterstitial(
     };
   }, [clearGamLoadTimer, gamInterstitial]);
 
-  // The single fallback trigger: a CloudX error (load OR show) starts GAM. GAM
-  // is unreachable by any other path, which is what guarantees exactly one
-  // source is ever loading.
+  /*
+   * The single fallback trigger: a CloudX error (load OR show) starts GAM. GAM
+   * is unreachable by any other path, which is what guarantees exactly one
+   * source is ever loading.
+   *
+   * One fallback per error, tracked here rather than by the latch alone. This
+   * effect also re-runs when `gamInterstitial` changes identity — which is
+   * exactly what a timeout does — and `cloudXError` is still set at that
+   * point, because useCloudXInterstitial clears it only on the next load() or
+   * a fill. Without this guard the recovery would immediately request GAM
+   * again and arm another timeout, forever.
+   */
   useEffect(() => {
-    if (cloudXError && !state.current.isGamLoaded && !gamLoadRequested.current) {
-      gamLoadRequested.current = true;
-      observerRef.current?.onCloudXError?.(String(cloudXError));
-      observerRef.current?.onGamFallbackRequested?.();
-      /*
-       * The latch stops a second GAM load racing the first, but GAM answering
-       * is what clears it. A request that never calls back would leave it set
-       * for the rest of the session, and every later load() would return early
-       * — the slot would be dead with nothing to rescue it. Same reasoning as
-       * ATTEMPT_TIMEOUT_MS in useFirstLookBanner.
-       */
-      clearGamLoadTimer();
-      gamLoadTimer.current = setTimeout(() => {
-        gamLoadTimer.current = null;
-        observerRef.current?.onGamLoadTimeout?.();
-        /*
-         * Replacing the ad object is what actually recovers: the abandoned
-         * request keeps running inside the plugin, and if it ever fills, that
-         * fill belongs to an instance nothing reads any more. The cleanup
-         * above clears the latch, so the next opportunity starts clean at
-         * CloudX rather than racing a request we can no longer see.
-         */
-        setGamGeneration(generation => generation + 1);
-      }, ATTEMPT_TIMEOUT_MS);
-      gamInterstitial.load();
+    if (!cloudXError) {
+      // A new load() cleared the error; the next failure is a new opportunity.
+      handledErrorRef.current = null;
+      return;
     }
+
+    const errorKey = String(cloudXError);
+    if (
+      handledErrorRef.current === errorKey ||
+      state.current.isGamLoaded ||
+      gamLoadRequested.current
+    ) {
+      return;
+    }
+
+    handledErrorRef.current = errorKey;
+    gamLoadRequested.current = true;
+    observerRef.current?.onCloudXError?.(errorKey);
+    observerRef.current?.onGamFallbackRequested?.();
+    /*
+     * The latch stops a second GAM load racing the first, but GAM answering is
+     * what clears it. A request that never calls back would leave it set for
+     * the rest of the session, and every later load() would return early — the
+     * slot would be dead with nothing to rescue it. Same reasoning as
+     * ATTEMPT_TIMEOUT_MS in useFirstLookBanner.
+     */
+    clearGamLoadTimer();
+    gamLoadTimer.current = setTimeout(() => {
+      gamLoadTimer.current = null;
+      /*
+       * Clear before the observer, like the close handlers: onGamLoadTimeout
+       * is where an app would retry, and load() reads this latch.
+       */
+      gamLoadRequested.current = false;
+      observerRef.current?.onGamLoadTimeout?.();
+      /*
+       * Replacing the ad object is what actually recovers: the plugin's load()
+       * early-returns while its internal _isLoadCalled is set, and only a
+       * CLOSED or ERROR clears that, so the old object can never load again.
+       * The abandoned request keeps running natively; any fill it produces
+       * belongs to an instance nothing reads.
+       *
+       * Note this leaks: MobileAd registers a native listener in its
+       * constructor and exposes no dispose, so each replaced instance stays
+       * subscribed. Bounded here at one per CloudX error, which is why the
+       * guard above matters.
+       */
+      setGamGeneration(generation => generation + 1);
+    }, ATTEMPT_TIMEOUT_MS);
+    gamInterstitial.load();
   }, [clearGamLoadTimer, cloudXError, gamInterstitial]);
 
   const load = useCallback(() => {
