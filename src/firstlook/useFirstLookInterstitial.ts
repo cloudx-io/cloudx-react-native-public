@@ -86,10 +86,23 @@ export type FirstLookInterstitialObserver = {
    * triggers the fallback. The union keeps both sources so this stays source
    * compatible if that changes.
    *
-   * The opportunity is over when this fires — no ad was displayed and no close
-   * will follow — so reload from here as you would from `onClosed`.
+   * The opportunity is over when this fires: the ad was consumed by a failed
+   * presentation, no close will follow, and the ready flags are already
+   * cleared. Reload from here as you would from `onClosed`.
+   *
+   * For a presentation that could not be attempted at all — the fill is still
+   * in hand — see `onShowDeferred`.
    */
   onShowFailed?: (source: 'cloudx' | 'gam', error: string) => void;
+  /**
+   * The ad could not be presented right now, but it is still loaded.
+   *
+   * This is the plugin rejecting the show call itself — on Android, no current
+   * Activity, which happens when the app is not foregrounded. Nothing was
+   * consumed, so do NOT reload: `load()` would no-op against the fill you
+   * still hold. Call `show()` again when presenting is possible.
+   */
+  onShowDeferred?: (source: 'gam', error: string) => void;
   /**
    * An ad was presented. For `'gam'` this fires on the SDK's OPENED event, so
    * it means the ad actually appeared — not merely that show() was called.
@@ -411,13 +424,18 @@ export function useFirstLookInterstitial(
       /*
        * Rejection only. A resolved promise means the native show call was
        * made, not that an ad appeared — onShown is emitted from the OPENED
-       * event instead. A rejection is a real invocation failure (on Android,
-       * no current Activity), so it is worth reporting.
+       * event instead.
+       *
+       * A rejection means the call never reached the ad, so nothing was
+       * consumed and `loaded` is still true. That is deliberately NOT
+       * onShowFailed: that callback says the opportunity is over and tells the
+       * app to reload, and a reload here would hit the isGamLoaded guard in
+       * load() and prepare nothing while a perfectly good fill sits unused.
        */
       presentingRef.current = true;
       Promise.resolve(gamInterstitial.show()).catch(error => {
         presentingRef.current = false;
-        observerRef.current?.onShowFailed?.('gam', String(error));
+        observerRef.current?.onShowDeferred?.('gam', String(error));
       });
       return true;
     }

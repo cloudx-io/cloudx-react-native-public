@@ -134,6 +134,12 @@ function InterstitialDemo() {
        * no close to follow, so it needs the same backed-off retry.
        */
       onShowFailed: scheduleRetry,
+      /*
+       * Deliberately no reload. The ad is still loaded — it just could not be
+       * presented at that moment — so isReady stays true and the next tap
+       * shows it. Reloading would no-op and waste the fill.
+       */
+      onShowDeferred: () => {},
     },
   );
 
