@@ -129,6 +129,11 @@ function InterstitialDemo() {
        * path, so without this the slot would stay empty.
        */
       onGamFailed: scheduleRetry,
+      /*
+       * A presentation that failed ends the opportunity with no ad shown and
+       * no close to follow, so it needs the same backed-off retry.
+       */
+      onShowFailed: scheduleRetry,
     },
   );
 

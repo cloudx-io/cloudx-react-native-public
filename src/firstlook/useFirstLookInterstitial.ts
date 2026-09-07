@@ -85,6 +85,9 @@ export type FirstLookInterstitialObserver = {
    * display failures arrive as an error on the load path, which is what
    * triggers the fallback. The union keeps both sources so this stays source
    * compatible if that changes.
+   *
+   * The opportunity is over when this fires — no ad was displayed and no close
+   * will follow — so reload from here as you would from `onClosed`.
    */
   onShowFailed?: (source: 'cloudx' | 'gam', error: string) => void;
   /**
@@ -197,6 +200,16 @@ export function useFirstLookInterstitial(
   useEffect(
     () =>
       onInterstitialClosed(cloudXAdUnitId, () => {
+        /*
+         * The bus fans out to every hook watching this ad unit, but only the
+         * instance that called show() owns the presentation. Without this, a
+         * second instance would clear its state and fire onClosed — whose
+         * documented use is to reload — inventing an opportunity that never
+         * happened.
+         */
+        if (!presentingRef.current) {
+          return;
+        }
         // Before the observer runs, not after: `onClosed` is where the app
         // reloads, and the guards in load() read state.current.
         state.current.isCloudXLoaded = false;
@@ -207,7 +220,7 @@ export function useFirstLookInterstitial(
   );
 
   useEffect(() => {
-    const unsubscribe = gamInterstitial.addAdEventsListener(({ type }) => {
+    const unsubscribe = gamInterstitial.addAdEventsListener(({ type, payload }) => {
       /*
        * OPENED is the only trustworthy "it is on screen" signal. The plugin
        * resolves the show() promise as soon as it has called the native show
@@ -228,15 +241,28 @@ export function useFirstLookInterstitial(
       // consumed, so the next opportunity must start fresh at CloudX rather
       // than believing GAM still has a fill in hand.
       if (type === AdEventType.ERROR || type === AdEventType.CLOSED) {
+        /*
+         * ERROR is not only a load failure. Both platforms report a failed
+         * presentation through the same event — iOS from
+         * didFailToPresentFullScreenContentWithError, Android from the
+         * equivalent full-screen callback — so the latch is what distinguishes
+         * them: if we were presenting, this is a show failure, not a no-fill.
+         */
+        const wasPresenting = presentingRef.current;
         clearGamLoadTimer();
         state.current.isGamLoaded = false;
         setIsGamLoaded(false);
         gamLoadRequested.current = false;
         presentingRef.current = false;
-        // Flags first, then the observer: both callbacks are places an app
+        // Flags first, then the observer: every branch here is a place an app
         // reloads from, and load() reads them.
         if (type === AdEventType.CLOSED) {
           observerRef.current?.onClosed?.('gam');
+        } else if (wasPresenting) {
+          const message =
+            (payload as { message?: string } | undefined)?.message ??
+            'GAM failed to present';
+          observerRef.current?.onShowFailed?.('gam', message);
         } else {
           observerRef.current?.onGamFailed?.();
         }
