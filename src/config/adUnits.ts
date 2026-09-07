@@ -143,3 +143,20 @@ export const MAX_BACKOFF_SECONDS = 64;
  * never calls back, and the cycle would never restart.
  */
 export const ATTEMPT_TIMEOUT_MS = 15_000;
+
+/**
+ * How long the SDK needs after an interstitial closes before it will accept a
+ * load for that placement again.
+ *
+ * The hidden event fires before the SDK releases the placement, so a load
+ * issued straight from `onClosed` is rejected with "Cannot load while another
+ * ad is currently being displayed" — and because that rejection is
+ * indistinguishable from a no-fill, the GAM fallback would take an opportunity
+ * CloudX was never really asked for.
+ *
+ * This value is measured, not derived: on an Android emulator an immediate
+ * reload failed every time and a 500ms deferral succeeded every time. Treat it
+ * as a floor rather than a guarantee — the real fix is an SDK signal for when
+ * the placement is free again.
+ */
+export const CLOSE_SETTLE_MS = 500;

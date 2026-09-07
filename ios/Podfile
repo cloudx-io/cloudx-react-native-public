@@ -40,11 +40,13 @@ target 'CloudXReactNativeDemo' do
   #      and react-native-google-mobile-ads brings its own. CocoaPods resolves
   #      one version per pod for the whole project, so the two fight.
 
-  # CloudX SDK and adapters — pinned to an exact published version so this demo
-  # reproduces one specific runtime rather than whatever is newest.
+  # Only CloudXCore is pinned exactly. The adapters use `~> 3.4.5`, which
+  # accepts any later 3.4.x, so a fresh `pod install` or a `pod update` can move
+  # them. Podfile.lock is what actually reproduces one runtime — commit it, and
+  # do not regenerate it casually.
   #
-  # NOTE the exact `3.4.5` rather than `~> 3.4.5`: CloudXCore 3.4.6 exists, and
-  # the pessimistic operator would silently resolve to it.
+  # NOTE the exact `3.4.5` on the core rather than `~> 3.4.5`: CloudXCore 3.4.6
+  # exists, and the pessimistic operator would silently resolve to it.
   pod 'CloudXCore',             '3.4.5'
   pod 'CloudXMetaAdapter',      '~> 3.4.5'
   pod 'CloudXVungleAdapter',    '~> 3.4.5'

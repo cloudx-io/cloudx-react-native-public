@@ -53,8 +53,11 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { AdEventType, GAMInterstitialAd } from 'react-native-google-mobile-ads';
 import { useCloudXInterstitial } from 'cloudx-react-native';
-import { ATTEMPT_TIMEOUT_MS } from '../config/adUnits';
-import { onInterstitialClosed } from './interstitialCloseBus';
+import { ATTEMPT_TIMEOUT_MS, CLOSE_SETTLE_MS } from '../config/adUnits';
+import {
+  onInterstitialClosed,
+  onInterstitialDisplayed,
+} from './interstitialEventBus';
 
 export type FirstLookInterstitialObserver = {
   onCloudXError?: (error: string) => void;
@@ -104,8 +107,9 @@ export type FirstLookInterstitialObserver = {
    */
   onShowDeferred?: (source: 'gam', error: string) => void;
   /**
-   * An ad was presented. For `'gam'` this fires on the SDK's OPENED event, so
-   * it means the ad actually appeared — not merely that show() was called.
+   * An ad was presented — confirmed by the SDK, not inferred from calling
+   * show(). CloudX reports this through its displayed event and GAM through
+   * OPENED, so either way it means the ad actually appeared.
    */
   onShown?: (source: 'cloudx' | 'gam') => void;
   /**
@@ -203,6 +207,24 @@ export function useFirstLookInterstitial(
   const cloudXLoadRequested = useRef(false);
 
   /*
+   * Set while the SDK is still tearing down the ad we just closed.
+   *
+   * The hidden event fires before the SDK's own manager releases the
+   * placement, so a load issued straight from onClosed — the pattern this hook
+   * documents — is rejected with "Cannot load while another ad is currently
+   * being displayed". That rejection arrives as a plain cloudXError, and the
+   * fallback effect cannot tell it from a no-fill, so GAM would take the next
+   * opportunity even though CloudX was never actually asked. Measured on an
+   * Android emulator: reloading immediately fails every time and GAM serves
+   * the next tap; deferring past teardown succeeds.
+   *
+   * While this is set, a CloudX error is treated as "ask again", not as a
+   * miss, so the placement stays with CloudX.
+   */
+  const settlingAfterCloseRef = useRef(false);
+  const settleTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  /*
    * Release the in-flight latch once the SDK reports it is done, whichever way
    * it went: a fill clears isCloudXLoading, and so does a failure (which also
    * sets cloudXError and drives the fallback below).
@@ -233,6 +255,18 @@ export function useFirstLookInterstitial(
   // why subscribing here directly silently breaks with two hook instances.
   useEffect(
     () =>
+      onInterstitialDisplayed(cloudXAdUnitId, () => {
+        // Only the instance that asked for this presentation reports it.
+        if (!presentingRef.current) {
+          return;
+        }
+        observerRef.current?.onShown?.('cloudx');
+      }),
+    [cloudXAdUnitId],
+  );
+
+  useEffect(
+    () =>
       onInterstitialClosed(cloudXAdUnitId, () => {
         /*
          * The bus fans out to every hook watching this ad unit, but only the
@@ -248,6 +282,14 @@ export function useFirstLookInterstitial(
         // reloads, and the guards in load() read state.current.
         state.current.isCloudXLoaded = false;
         presentingRef.current = false;
+        settlingAfterCloseRef.current = true;
+        if (settleTimer.current) {
+          clearTimeout(settleTimer.current);
+        }
+        settleTimer.current = setTimeout(() => {
+          settleTimer.current = null;
+          settlingAfterCloseRef.current = false;
+        }, CLOSE_SETTLE_MS);
         observerRef.current?.onClosed?.('cloudx');
       }),
     [cloudXAdUnitId],
@@ -304,6 +346,10 @@ export function useFirstLookInterstitial(
     });
     return () => {
       clearGamLoadTimer();
+      if (settleTimer.current) {
+        clearTimeout(settleTimer.current);
+        settleTimer.current = null;
+      }
       unsubscribe();
       /*
        * These flags describe the instance being torn down, so they must not
@@ -353,6 +399,24 @@ export function useFirstLookInterstitial(
     // this is the only place that can release the latch on that path.
     presentingRef.current = false;
 
+    /*
+     * Still tearing down: this error is the SDK refusing a load it cannot
+     * service yet, not a miss. Ask CloudX again rather than handing the
+     * opportunity to GAM.
+     */
+    if (settlingAfterCloseRef.current) {
+      if (settleTimer.current) {
+        clearTimeout(settleTimer.current);
+      }
+      settleTimer.current = setTimeout(() => {
+        settleTimer.current = null;
+        settlingAfterCloseRef.current = false;
+        cloudXLoadRequested.current = false;
+        loadCloudX();
+      }, CLOSE_SETTLE_MS);
+      return;
+    }
+
     const errorKey = String(cloudXError);
     if (
       handledErrorRef.current === errorKey ||
@@ -397,7 +461,7 @@ export function useFirstLookInterstitial(
       setGamGeneration(generation => generation + 1);
     }, ATTEMPT_TIMEOUT_MS);
     gamInterstitial.load();
-  }, [clearGamLoadTimer, cloudXError, gamInterstitial]);
+  }, [clearGamLoadTimer, cloudXError, gamInterstitial, loadCloudX]);
 
   const load = useCallback(() => {
     const current = state.current;
@@ -426,9 +490,15 @@ export function useFirstLookInterstitial(
     }
 
     if (current.isCloudXLoaded) {
+      /*
+       * No onShown here. showCloudX() returns void, so returning from it says
+       * the show was requested, not that anything appeared — and a CloudX
+       * display failure surfaces asynchronously as cloudXError, which would
+       * leave an impression already counted for an ad that never showed.
+       * onShown('cloudx') is emitted from the SDK's displayed event instead.
+       */
       presentingRef.current = true;
       showCloudX();
-      observerRef.current?.onShown?.('cloudx');
       return true;
     }
 
