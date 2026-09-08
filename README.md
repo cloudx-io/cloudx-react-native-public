@@ -125,8 +125,15 @@ that fights `react-native-google-mobile-ads`.
 ## Running
 
 ```bash
-npm install
-cd ios && pod install && cd ..
+# npm ci, not npm install: the committed package-lock.json is what pins the JS
+# side, and `install` is free to move it.
+npm ci
+
+# Through Bundler, not global CocoaPods. The Gemfile pins CocoaPods to the
+# 1.16.2 that generated ios/Podfile.lock; a global `pod install` can be any
+# version and will happily regenerate the workspace with a different toolchain.
+bundle install
+(cd ios && bundle exec pod install)
 
 npm run ios       # or
 npm run android
