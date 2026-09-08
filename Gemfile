@@ -1,6 +1,8 @@
 source 'https://rubygems.org'
 
-# You may use http://rbenv.org/ or https://rvm.io/ to install and use this version.
+# The interpreter is deliberately not pinned: no .ruby-version or
+# .tool-versions is committed, so this is a floor rather than an exact version
+# and rbenv/rvm have nothing to switch to automatically.
 #
 # 3.2 is the floor the committed Gemfile.lock actually needs — connection_pool
 # 3.0.2 in that lock requires >= 3.2.0. Leaving this at the React Native

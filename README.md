@@ -133,10 +133,15 @@ npm ci
 # 1.16.2 that generated ios/Podfile.lock; a global `pod install` can be any
 # version and will happily regenerate the workspace with a different toolchain.
 #
-# Needs Ruby >= 3.2 (what the committed Gemfile.lock resolves against) and a
-# Bundler that can read it — the lock records BUNDLED WITH 4.0.11. On an older
-# Ruby, Bundler cannot install the locked set and will re-resolve, rewriting
-# the lockfile.
+# Needs Ruby >= 3.2. That is the floor the locked gems impose, not the
+# interpreter the lock was produced on — Gemfile.lock records RUBY VERSION
+# 4.0.5 and BUNDLED WITH 4.0.11. On an older Ruby this aborts with
+# RubyVersionMismatch rather than installing anything; the Gemfile's `ruby`
+# directive is checked before the installer runs.
+#
+# Bundler >= 2.5 is required in practice, since the lock carries a CHECKSUMS
+# section older Bundlers cannot honour. Nothing enforces that, so check
+# `bundle -v` if the checksums appear to be ignored.
 bundle install
 (cd ios && bundle exec pod install)
 
