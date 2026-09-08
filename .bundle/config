@@ -1,8 +1,3 @@
 BUNDLE_PATH: "vendor/bundle"
 BUNDLE_FORCE_RUBY_PLATFORM: 1
-# Fail instead of silently rewriting Gemfile.lock when the Gemfile and the lock
-# disagree. Committing the lock only pins anything if a mismatch is an error;
-# without this, `bundle install` quietly re-resolves and the lock drifts.
-# Changing a gem therefore means running `bundle lock` and committing the
-# result, deliberately.
 BUNDLE_FROZEN: "true"

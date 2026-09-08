@@ -133,17 +133,28 @@ npm ci
 # 1.16.2 that generated ios/Podfile.lock; a global `pod install` can be any
 # version and will happily regenerate the workspace with a different toolchain.
 #
-# Needs Ruby >= 3.2. That is the floor the locked gems impose, not the
-# interpreter the lock was produced on — Gemfile.lock records RUBY VERSION
-# 4.0.5 and BUNDLED WITH 4.0.11. On an older Ruby this aborts with
-# RubyVersionMismatch rather than installing anything; the Gemfile's `ruby`
-# directive is checked before the installer runs.
+# Needs Bundler >= 4 and Ruby >= 3.2.
 #
-# Bundler >= 2.5 is required in practice, since the lock carries a CHECKSUMS
-# section older Bundlers cannot honour. Nothing enforces that, so check
-# `bundle -v` if the checksums appear to be ignored.
+# Bundler is the binding one, and it fails loudly: Gemfile.lock ends with
+# BUNDLED WITH 4.0.11, and an older Bundler refuses to parse it at all —
+# "You must use Bundler 4 or greater with this lockfile." If you see that,
+# `gem install bundler -v 4.0.11`.
+#
+# Ruby >= 3.2 is the floor the locked gems impose (connection_pool 3.0.2), not
+# the interpreter the lock was made on — that was 4.0.5. In practice you hit
+# the Bundler error first, because Bundler 4 itself needs Ruby >= 3.2.
 bundle install
 (cd ios && bundle exec pod install)
+```
+
+`.bundle/config` sets `BUNDLE_FROZEN`, so a Gemfile that disagrees with
+`Gemfile.lock` fails instead of silently re-resolving — committing a lockfile
+only pins anything if a mismatch is an error. Changing a gem therefore means
+running `bundle lock` and committing the result deliberately. That rationale
+lives here rather than in `.bundle/config` because Bundler rewrites that file
+programmatically and drops every comment in it.
+
+```bash
 
 npm run ios       # or
 npm run android
