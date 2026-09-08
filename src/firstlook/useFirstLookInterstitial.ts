@@ -52,12 +52,8 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { AdEventType, GAMInterstitialAd } from 'react-native-google-mobile-ads';
-import { useCloudXInterstitial } from 'cloudx-react-native';
+import { CloudXInterstitialAd, useCloudXInterstitial } from 'cloudx-react-native';
 import { ATTEMPT_TIMEOUT_MS, CLOSE_SETTLE_MS } from '../config/adUnits';
-import {
-  onInterstitialClosed,
-  onInterstitialDisplayed,
-} from './interstitialEventBus';
 
 export type FirstLookInterstitialObserver = {
   onCloudXError?: (error: string) => void;
@@ -302,53 +298,57 @@ export function useFirstLookInterstitial(
   // nothing to react to when an ad is dismissed: the ad is consumed, isReady
   // goes false, and the slot stays dead for the rest of the session. The GAM
   // leg below already handles its own CLOSED; this makes the two symmetric.
-  //
-  // Routed through interstitialEventBus rather than subscribing directly,
-  // because the SDK's hidden-event listener is singleton — see that module for
-  // why subscribing here directly silently breaks with two hook instances.
-  useEffect(
-    () =>
-      onInterstitialDisplayed(cloudXAdUnitId, () => {
-        // Only the instance that asked for this presentation reports it.
-        if (!presentingRef.current) {
-          return;
-        }
-        clearPresentWatchdog();
-        observerRef.current?.onShown?.('cloudx');
-      }),
-    [cloudXAdUnitId, clearPresentWatchdog],
-  );
+  /*
+   * These two listeners are SINGLETON per event: the SDK's addEventListener
+   * removes any existing subscription before installing the new one, and
+   * removeAdHiddenEventListener removes that one global subscription rather
+   * than a particular caller's. So this hook must be the only thing in the app
+   * subscribing to the interstitial hidden and displayed events. Mount it twice,
+   * or subscribe anywhere else, and the earlier listener goes deaf with no
+   * error. cloudx-react-native 3.4.7 does not export the shared
+   * NativeEventEmitter (cloudXEventEmitter was added later), which is what a
+   * multi-subscriber app would need.
+   */
+  useEffect(() => {
+    CloudXInterstitialAd.addAdDisplayedEventListener(adInfo => {
+      // Only this hook's ad unit, and only a presentation it asked for.
+      if (adInfo?.adUnitId !== cloudXAdUnitId || !presentingRef.current) {
+        return;
+      }
+      clearPresentWatchdog();
+      observerRef.current?.onShown?.('cloudx');
+    });
+    return () => CloudXInterstitialAd.removeAdDisplayedEventListener();
+  }, [cloudXAdUnitId, clearPresentWatchdog]);
 
-  useEffect(
-    () =>
-      onInterstitialClosed(cloudXAdUnitId, () => {
-        /*
-         * The bus fans out to every hook watching this ad unit, but only the
-         * instance that called show() owns the presentation. Without this, a
-         * second instance would clear its state and fire onClosed — whose
-         * documented use is to reload — inventing an opportunity that never
-         * happened.
-         */
-        if (!presentingRef.current) {
-          return;
-        }
-        // Before the observer runs, not after: `onClosed` is where the app
-        // reloads, and the guards in load() read state.current.
-        state.current.isCloudXLoaded = false;
-        clearPresentWatchdog();
-        presentingRef.current = false;
-        settlingAfterCloseRef.current = true;
-        if (settleTimer.current) {
-          clearTimeout(settleTimer.current);
-        }
-        settleTimer.current = setTimeout(() => {
-          settleTimer.current = null;
-          settlingAfterCloseRef.current = false;
-        }, CLOSE_SETTLE_MS);
-        observerRef.current?.onClosed?.('cloudx');
-      }),
-    [cloudXAdUnitId, clearPresentWatchdog],
-  );
+  useEffect(() => {
+    CloudXInterstitialAd.addAdHiddenEventListener(adInfo => {
+      /*
+       * An event for another placement is not this slot's close, and a close
+       * this hook did not present is not its opportunity — firing onClosed,
+       * whose documented use is to reload, would invent one that never
+       * happened.
+       */
+      if (adInfo?.adUnitId !== cloudXAdUnitId || !presentingRef.current) {
+        return;
+      }
+      // Before the observer runs, not after: `onClosed` is where the app
+      // reloads, and the guards in load() read state.current.
+      state.current.isCloudXLoaded = false;
+      clearPresentWatchdog();
+      presentingRef.current = false;
+      settlingAfterCloseRef.current = true;
+      if (settleTimer.current) {
+        clearTimeout(settleTimer.current);
+      }
+      settleTimer.current = setTimeout(() => {
+        settleTimer.current = null;
+        settlingAfterCloseRef.current = false;
+      }, CLOSE_SETTLE_MS);
+      observerRef.current?.onClosed?.('cloudx');
+    });
+    return () => CloudXInterstitialAd.removeAdHiddenEventListener();
+  }, [cloudXAdUnitId, clearPresentWatchdog]);
 
   useEffect(() => {
     const unsubscribe = gamInterstitial.addAdEventsListener(({ type, payload }) => {
