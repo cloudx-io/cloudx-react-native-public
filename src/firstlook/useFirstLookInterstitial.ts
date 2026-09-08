@@ -197,12 +197,47 @@ export function useFirstLookInterstitial(
   const presentingRef = useRef(false);
 
   /*
+   * Every other latch in this file can time out; this one could not. It is set
+   * before the SDK is asked to present and cleared by the presentation
+   * lifecycle — displayed/OPENED then hidden/CLOSED, or an error. If the
+   * native side answers with none of those, show() would report not-shown for
+   * the rest of the session and the close handler's owner check would make
+   * onClosed unreachable, so nothing could recover it.
+   *
+   * The watchdog releases the latch only while the presentation is still
+   * unconfirmed. Once displayed/OPENED arrives it is cancelled, so a long ad
+   * on screen never trips it.
+   */
+  const presentWatchdog = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const clearPresentWatchdog = useCallback(() => {
+    if (presentWatchdog.current) {
+      clearTimeout(presentWatchdog.current);
+      presentWatchdog.current = null;
+    }
+  }, []);
+
+  const armPresentWatchdog = useCallback(() => {
+    if (presentWatchdog.current) {
+      clearTimeout(presentWatchdog.current);
+    }
+    presentWatchdog.current = setTimeout(() => {
+      presentWatchdog.current = null;
+      presentingRef.current = false;
+    }, ATTEMPT_TIMEOUT_MS);
+  }, []);
+
+  /*
    * Synchronous mirror of "a CloudX load is in flight". isCloudXLoading only
    * reaches state.current on the next render, so two load() calls in one tick
-   * — a retry timer landing on the same tick as a tap, or StrictMode running
-   * mount effects twice — would both pass the guards and issue two requests.
-   * The GAM leg already had gamLoadRequested for exactly this; this is its
-   * counterpart.
+   * — a retry timer landing on the same tick as a tap — would both pass the
+   * guards and issue two requests. The GAM leg already had gamLoadRequested
+   * for exactly this; this is its counterpart.
+   *
+   * Note this does not survive StrictMode's replayed effect phase: the release
+   * effect below re-runs with isCloudXLoading still false and clears the
+   * latch. Guarding that too would need the SDK to report in-flight state
+   * synchronously.
    */
   const cloudXLoadRequested = useRef(false);
 
@@ -223,6 +258,24 @@ export function useFirstLookInterstitial(
    */
   const settlingAfterCloseRef = useRef(false);
   const settleTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  /*
+   * Owned here rather than by the GAM listener effect. That effect re-runs
+   * whenever gamInterstitial changes identity — a generation bump after a GAM
+   * timeout, or a new gamAdUnitId — and clearing the settle timer from its
+   * cleanup would cancel a pending CloudX retry while leaving the settling
+   * flag set: no load, no error, no callback, and the next CloudX error taking
+   * the settling branch instead of the fallback.
+   */
+  useEffect(
+    () => () => {
+      if (settleTimer.current) {
+        clearTimeout(settleTimer.current);
+        settleTimer.current = null;
+      }
+    },
+    [],
+  );
 
   /*
    * Release the in-flight latch once the SDK reports it is done, whichever way
@@ -250,7 +303,7 @@ export function useFirstLookInterstitial(
   // goes false, and the slot stays dead for the rest of the session. The GAM
   // leg below already handles its own CLOSED; this makes the two symmetric.
   //
-  // Routed through interstitialCloseBus rather than subscribing directly,
+  // Routed through interstitialEventBus rather than subscribing directly,
   // because the SDK's hidden-event listener is singleton — see that module for
   // why subscribing here directly silently breaks with two hook instances.
   useEffect(
@@ -260,9 +313,10 @@ export function useFirstLookInterstitial(
         if (!presentingRef.current) {
           return;
         }
+        clearPresentWatchdog();
         observerRef.current?.onShown?.('cloudx');
       }),
-    [cloudXAdUnitId],
+    [cloudXAdUnitId, clearPresentWatchdog],
   );
 
   useEffect(
@@ -281,6 +335,7 @@ export function useFirstLookInterstitial(
         // Before the observer runs, not after: `onClosed` is where the app
         // reloads, and the guards in load() read state.current.
         state.current.isCloudXLoaded = false;
+        clearPresentWatchdog();
         presentingRef.current = false;
         settlingAfterCloseRef.current = true;
         if (settleTimer.current) {
@@ -292,7 +347,7 @@ export function useFirstLookInterstitial(
         }, CLOSE_SETTLE_MS);
         observerRef.current?.onClosed?.('cloudx');
       }),
-    [cloudXAdUnitId],
+    [cloudXAdUnitId, clearPresentWatchdog],
   );
 
   useEffect(() => {
@@ -305,6 +360,7 @@ export function useFirstLookInterstitial(
        * The SDK reports actual presentation here.
        */
       if (type === AdEventType.OPENED) {
+        clearPresentWatchdog();
         observerRef.current?.onShown?.('gam');
       }
       if (type === AdEventType.LOADED) {
@@ -325,6 +381,7 @@ export function useFirstLookInterstitial(
          * them: if we were presenting, this is a show failure, not a no-fill.
          */
         const wasPresenting = presentingRef.current;
+        clearPresentWatchdog();
         clearGamLoadTimer();
         state.current.isGamLoaded = false;
         setIsGamLoaded(false);
@@ -346,10 +403,6 @@ export function useFirstLookInterstitial(
     });
     return () => {
       clearGamLoadTimer();
-      if (settleTimer.current) {
-        clearTimeout(settleTimer.current);
-        settleTimer.current = null;
-      }
       unsubscribe();
       /*
        * These flags describe the instance being torn down, so they must not
@@ -361,7 +414,7 @@ export function useFirstLookInterstitial(
       state.current.isGamLoaded = false;
       setIsGamLoaded(false);
     };
-  }, [clearGamLoadTimer, gamInterstitial]);
+  }, [clearGamLoadTimer, clearPresentWatchdog, gamInterstitial]);
 
   /*
    * The single fallback trigger: a CloudX error (load OR show) starts GAM. GAM
@@ -411,7 +464,10 @@ export function useFirstLookInterstitial(
       settleTimer.current = setTimeout(() => {
         settleTimer.current = null;
         settlingAfterCloseRef.current = false;
-        cloudXLoadRequested.current = false;
+        // A load in flight: claim the latch rather than clearing it. Clearing
+        // it here would let a tap landing before setIsLoading commits issue a
+        // second request for the same placement.
+        cloudXLoadRequested.current = true;
         loadCloudX();
       }, CLOSE_SETTLE_MS);
       return;
@@ -461,7 +517,7 @@ export function useFirstLookInterstitial(
       setGamGeneration(generation => generation + 1);
     }, ATTEMPT_TIMEOUT_MS);
     gamInterstitial.load();
-  }, [clearGamLoadTimer, cloudXError, gamInterstitial, loadCloudX]);
+  }, [clearGamLoadTimer, clearPresentWatchdog, cloudXError, gamInterstitial, loadCloudX]);
 
   const load = useCallback(() => {
     const current = state.current;
@@ -498,6 +554,7 @@ export function useFirstLookInterstitial(
        * onShown('cloudx') is emitted from the SDK's displayed event instead.
        */
       presentingRef.current = true;
+      armPresentWatchdog();
       showCloudX();
       return true;
     }
@@ -526,7 +583,9 @@ export function useFirstLookInterstitial(
        * load() and prepare nothing while a perfectly good fill sits unused.
        */
       presentingRef.current = true;
+      armPresentWatchdog();
       Promise.resolve(gamInterstitial.show()).catch(error => {
+        clearPresentWatchdog();
         presentingRef.current = false;
         observerRef.current?.onShowDeferred?.('gam', String(error));
       });
@@ -535,7 +594,7 @@ export function useFirstLookInterstitial(
 
     observerRef.current?.onNothingReady?.();
     return false;
-  }, [gamInterstitial, showCloudX]);
+  }, [armPresentWatchdog, clearPresentWatchdog, gamInterstitial, showCloudX]);
 
   return {
     isReady: isCloudXLoaded || isGamLoaded,

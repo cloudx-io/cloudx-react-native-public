@@ -83,7 +83,12 @@ function subscribe(
   listener: Listener,
 ): () => void {
   if (!registry.installed) {
-    registry.installed = true;
+    /*
+     * Marked installed only after install() returns. Setting it first would
+     * leave the registry permanently deaf if the native module is not ready
+     * yet and the call throws — the flag would say installed while no listener
+     * was ever attached.
+     */
     registry.install(id => {
       const forAdUnit = registry.listeners.get(id);
       if (!forAdUnit) {
@@ -94,6 +99,7 @@ function subscribe(
         each();
       }
     });
+    registry.installed = true;
   }
 
   const forAdUnit =
