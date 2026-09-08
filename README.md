@@ -125,34 +125,33 @@ that fights `react-native-google-mobile-ads`.
 ## Running
 
 ```bash
-# npm ci, not npm install: the committed package-lock.json is what pins the JS
-# side, and `install` is free to move it.
+# npm ci, not npm install: the committed package-lock.json pins the JS side,
+# and `install` is free to move it.
 npm ci
 
-# Through Bundler, not global CocoaPods. The Gemfile pins CocoaPods to the
-# 1.16.2 that generated ios/Podfile.lock; a global `pod install` can be any
-# version and will happily regenerate the workspace with a different toolchain.
-#
-# Needs Bundler >= 4 and Ruby >= 3.2.
-#
-# Bundler is the binding one, and it fails loudly: Gemfile.lock ends with
-# BUNDLED WITH 4.0.11, and an older Bundler refuses to parse it at all —
-# "You must use Bundler 4 or greater with this lockfile." If you see that,
-# `gem install bundler -v 4.0.11`.
-#
-# Ruby >= 3.2 is the floor the locked gems impose (connection_pool 3.0.2), not
-# the interpreter the lock was made on — that was 4.0.5. In practice you hit
-# the Bundler error first, because Bundler 4 itself needs Ruby >= 3.2.
+# Through Bundler, not global CocoaPods. The Gemfile holds CocoaPods in the
+# 1.16.x line that generated ios/Podfile.lock; a global `pod install` can be
+# any version and will regenerate the workspace with a different toolchain.
 bundle install
 (cd ios && bundle exec pod install)
 ```
 
-`.bundle/config` sets `BUNDLE_FROZEN`, so a Gemfile that disagrees with
-`Gemfile.lock` fails instead of silently re-resolving — committing a lockfile
-only pins anything if a mismatch is an error. Changing a gem therefore means
-running `bundle lock` and committing the result deliberately. That rationale
-lives here rather than in `.bundle/config` because Bundler rewrites that file
-programmatically and drops every comment in it.
+`Gemfile.lock` is deliberately **not** committed, which is the usual posture for
+a React Native plugin demo — `ios/Podfile.lock` is the lockfile that matters
+here, because it is what pins the native dependency graph. The Gemfile carries
+version constraints instead of a resolved lock, and the two that are not
+inherited from the React Native template are there for reasons worth knowing:
+
+- **`cocoapods ~> 1.16.2`.** CocoaPods 1.17.0 cannot parse React Native
+  0.76.2's Podfile — `Invalid \`Podfile\` file: unknown keyword: quirks_mode`.
+- **`json < 3.0`.** json 3.0 removed the `quirks_mode` option that
+  ActiveSupport 7.2 still passes, which is where that error actually comes
+  from. Without this pin `bundle exec pod install` fails before installing
+  anything.
+
+The template's `xcodeproj < 1.26.0` pin is gone: CocoaPods 1.16.2 requires
+xcodeproj >= 1.27.0, so that cap would silently drag CocoaPods back to 1.15.2 —
+older than the version that generated `ios/Podfile.lock`.
 
 ```bash
 npm run ios       # or
