@@ -135,19 +135,9 @@ export function useFirstLookInterstitial(
    * units, and the `useInterstitialAd` hook does not surface GAM-specific
    * event types, so the GAM interstitial is managed directly.
    */
-  /*
-   * Bumped to abandon a GAM request that never answered. The plugin's load()
-   * early-returns while its internal _isLoadCalled is set, and only a CLOSED
-   * or ERROR event clears that — so a silent request makes every later load()
-   * on the same object a no-op. Clearing our own latch is not enough; the
-   * object itself has to be replaced.
-   */
-  const [gamGeneration, setGamGeneration] = useState(0);
-
   const gamInterstitial = useMemo(
     () => GAMInterstitialAd.createForAdRequest(gamAdUnitId),
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [gamAdUnitId, gamGeneration],
+    [gamAdUnitId],
   );
   const [isGamLoaded, setIsGamLoaded] = useState(false);
   const gamLoadRequested = useRef(false);
@@ -189,39 +179,13 @@ export function useFirstLookInterstitial(
    * CLOSED/ERROR — so without this a second show() (a double tap is enough)
    * asks the same fullscreen ad to present again. On the CloudX path that also
    * risks starting the GAM fallback while the first ad is still on screen.
+   *
+   * Cleared by the presentation lifecycle only: CloudX hidden, a CloudX error,
+   * GAM CLOSED/ERROR, or a rejected GAM show. A native side that answers with
+   * none of those leaves this set and show() reports not-shown from then on.
+   * This demo accepts that rather than carrying a timeout for it.
    */
   const presentingRef = useRef(false);
-
-  /*
-   * Every other latch in this file can time out; this one could not. It is set
-   * before the SDK is asked to present and cleared by the presentation
-   * lifecycle — displayed/OPENED then hidden/CLOSED, or an error. If the
-   * native side answers with none of those, show() would report not-shown for
-   * the rest of the session and the close handler's owner check would make
-   * onClosed unreachable, so nothing could recover it.
-   *
-   * The watchdog releases the latch only while the presentation is still
-   * unconfirmed. Once displayed/OPENED arrives it is cancelled, so a long ad
-   * on screen never trips it.
-   */
-  const presentWatchdog = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-  const clearPresentWatchdog = useCallback(() => {
-    if (presentWatchdog.current) {
-      clearTimeout(presentWatchdog.current);
-      presentWatchdog.current = null;
-    }
-  }, []);
-
-  const armPresentWatchdog = useCallback(() => {
-    if (presentWatchdog.current) {
-      clearTimeout(presentWatchdog.current);
-    }
-    presentWatchdog.current = setTimeout(() => {
-      presentWatchdog.current = null;
-      presentingRef.current = false;
-    }, ATTEMPT_TIMEOUT_MS);
-  }, []);
 
   /*
    * Synchronous mirror of "a CloudX load is in flight". isCloudXLoading only
@@ -315,11 +279,10 @@ export function useFirstLookInterstitial(
       if (adInfo?.adUnitId !== cloudXAdUnitId || !presentingRef.current) {
         return;
       }
-      clearPresentWatchdog();
       observerRef.current?.onShown?.('cloudx');
     });
     return () => CloudXInterstitialAd.removeAdDisplayedEventListener();
-  }, [cloudXAdUnitId, clearPresentWatchdog]);
+  }, [cloudXAdUnitId]);
 
   useEffect(() => {
     CloudXInterstitialAd.addAdHiddenEventListener(adInfo => {
@@ -335,7 +298,6 @@ export function useFirstLookInterstitial(
       // Before the observer runs, not after: `onClosed` is where the app
       // reloads, and the guards in load() read state.current.
       state.current.isCloudXLoaded = false;
-      clearPresentWatchdog();
       presentingRef.current = false;
       settlingAfterCloseRef.current = true;
       if (settleTimer.current) {
@@ -348,7 +310,7 @@ export function useFirstLookInterstitial(
       observerRef.current?.onClosed?.('cloudx');
     });
     return () => CloudXInterstitialAd.removeAdHiddenEventListener();
-  }, [cloudXAdUnitId, clearPresentWatchdog]);
+  }, [cloudXAdUnitId]);
 
   useEffect(() => {
     const unsubscribe = gamInterstitial.addAdEventsListener(({ type, payload }) => {
@@ -360,7 +322,6 @@ export function useFirstLookInterstitial(
        * The SDK reports actual presentation here.
        */
       if (type === AdEventType.OPENED) {
-        clearPresentWatchdog();
         observerRef.current?.onShown?.('gam');
       }
       if (type === AdEventType.LOADED) {
@@ -381,7 +342,6 @@ export function useFirstLookInterstitial(
          * them: if we were presenting, this is a show failure, not a no-fill.
          */
         const wasPresenting = presentingRef.current;
-        clearPresentWatchdog();
         clearGamLoadTimer();
         state.current.isGamLoaded = false;
         setIsGamLoaded(false);
@@ -414,7 +374,7 @@ export function useFirstLookInterstitial(
       state.current.isGamLoaded = false;
       setIsGamLoaded(false);
     };
-  }, [clearGamLoadTimer, clearPresentWatchdog, gamInterstitial]);
+  }, [clearGamLoadTimer, gamInterstitial]);
 
   /*
    * The single fallback trigger: a CloudX error (load OR show) starts GAM. GAM
@@ -503,21 +463,19 @@ export function useFirstLookInterstitial(
       gamLoadRequested.current = false;
       observerRef.current?.onGamLoadTimeout?.();
       /*
-       * Replacing the ad object is what actually recovers: the plugin's load()
-       * early-returns while its internal _isLoadCalled is set, and only a
-       * CLOSED or ERROR clears that, so the old object can never load again.
-       * The abandoned request keeps running natively; any fill it produces
-       * belongs to an instance nothing reads.
-       *
-       * Note this leaks: MobileAd registers a native listener in its
-       * constructor and exposes no dispose, so each replaced instance stays
-       * subscribed. Bounded here at one per CloudX error, which is why the
-       * guard above matters.
+       * Clearing the latch keeps the slot alive — the next load() goes to
+       * CloudX as usual — but it does not revive the GAM leg. The plugin's
+       * load() early-returns while its internal _isLoadCalled is set, and only
+       * a CLOSED or ERROR clears that, so this object cannot load again and
+       * every later fallback attempt on it is a no-op. Recovering that needs
+       * the ad object replaced, which means a new instance per timeout, and
+       * MobileAd exposes no dispose to release the one being dropped. A
+       * publisher who needs the fallback to survive a silent request should
+       * recreate it; this demo keeps CloudX serving instead.
        */
-      setGamGeneration(generation => generation + 1);
     }, ATTEMPT_TIMEOUT_MS);
     gamInterstitial.load();
-  }, [clearGamLoadTimer, clearPresentWatchdog, cloudXError, gamInterstitial, loadCloudX]);
+  }, [clearGamLoadTimer, cloudXError, gamInterstitial, loadCloudX]);
 
   const load = useCallback(() => {
     const current = state.current;
@@ -554,7 +512,6 @@ export function useFirstLookInterstitial(
        * onShown('cloudx') is emitted from the SDK's displayed event instead.
        */
       presentingRef.current = true;
-      armPresentWatchdog();
       showCloudX();
       return true;
     }
@@ -583,9 +540,7 @@ export function useFirstLookInterstitial(
        * load() and prepare nothing while a perfectly good fill sits unused.
        */
       presentingRef.current = true;
-      armPresentWatchdog();
       Promise.resolve(gamInterstitial.show()).catch(error => {
-        clearPresentWatchdog();
         presentingRef.current = false;
         observerRef.current?.onShowDeferred?.('gam', String(error));
       });
@@ -594,7 +549,7 @@ export function useFirstLookInterstitial(
 
     observerRef.current?.onNothingReady?.();
     return false;
-  }, [armPresentWatchdog, clearPresentWatchdog, gamInterstitial, showCloudX]);
+  }, [gamInterstitial, showCloudX]);
 
   return {
     isReady: isCloudXLoaded || isGamLoaded,
