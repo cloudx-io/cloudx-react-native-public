@@ -155,7 +155,6 @@ lives here rather than in `.bundle/config` because Bundler rewrites that file
 programmatically and drops every comment in it.
 
 ```bash
-
 npm run ios       # or
 npm run android
 ```
