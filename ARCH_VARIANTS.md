@@ -15,13 +15,17 @@ Controlled by the `RCT_NEW_ARCH_ENABLED` environment variable at `pod install` t
 
 ```bash
 # OldArch (Paper) — default
-(cd ios && pod install)
+(cd ios && bundle exec pod install)
 xcodebuild -workspace ios/CloudXReactNativeDemo.xcworkspace -scheme CloudXReactNativeDemo …
 
 # NewArch (Fabric + TurboModules)
-(cd ios && RCT_NEW_ARCH_ENABLED=1 pod install)
+(cd ios && RCT_NEW_ARCH_ENABLED=1 bundle exec pod install)
 xcodebuild -workspace ios/CloudXReactNativeDemo.xcworkspace -scheme CloudXReactNativeDemo …
 ```
+
+Through Bundler, as in the README: a global `pod install` can be any version and
+would regenerate the workspace with a different toolchain than `ios/Podfile.lock`
+records. The environment variable still goes in front of the pinned executable.
 
 Switching variants requires a fresh `pod install`; the two builds cannot coexist in the same checkout without reinstalling Pods.
 

@@ -39,8 +39,6 @@
 	<string>This demo app uses location to improve ad relevance when permitted.</string>
 	<key>NSUserTrackingUsageDescription</key>
 	<string>This app uses tracking to provide personalized ads and improve your experience.</string>
-	<key>RCTNewArchEnabled</key>
-	<true/>
 	<key>SKAdNetworkItems</key>
 	<array>
 		<dict>
