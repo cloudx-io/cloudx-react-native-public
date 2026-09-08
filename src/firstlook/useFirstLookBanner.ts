@@ -79,8 +79,10 @@ import {
   MAX_BACKOFF_SECONDS,
   REFRESH_DELAY_MS,
 } from '../config/adUnits';
+import type { FirstLookSource } from './FirstLookSource';
 
-export type FirstLookSource = 'cloudx' | 'gam';
+/* Re-exported so a caller importing this hook does not need a second import. */
+export type { FirstLookSource };
 
 export type FirstLookAttempt = {
   source: FirstLookSource;

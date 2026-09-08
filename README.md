@@ -171,4 +171,24 @@ cloudx no-fill -> gam attempt -> gam fill -> (REFRESH_DELAY_MS) -> cloudx attemp
 
 `useFirstLookBanner` takes an optional `observer` with `onAttemptStart`, `onFill`, `onNoFill`,
 `onBackoff`, `onAttemptTimeout` and `onCycleDeferred` callbacks — pass one and log from it to watch
-the cycle. `useFirstLookInterstitial` takes an equivalent observer.
+the cycle.
+
+`useFirstLookInterstitial` takes an observer too, named and shaped like the
+[public Unity demo's](https://github.com/cloudx-io/cloudx-unity) `FirstLookInterstitialController` so
+the two integrations read alike. Six callbacks, each carrying the source that served the ad
+(`'cloudx'` or `'gam'`):
+
+| callback | meaning |
+| --- | --- |
+| `onAdLoaded` | a source filled |
+| `onAdShown` | the SDK confirmed the ad is on screen — not inferred from `show()` returning |
+| `onAdClicked` | the user tapped the ad; the placement is unaffected |
+| `onAdClosed` | the ad was dismissed; the opportunity is over |
+| `onAdLoadFailed` | **both** sources missed; the opportunity is over |
+| `onAdShowFailed` | a loaded ad could not be presented; the opportunity is over |
+
+The one a publisher can get wrong is `onAdLoadFailed`. It is **not** raised when CloudX alone misses,
+because that miss is not terminal — it is what triggers the fallback. Reporting it there would have
+the app back off and reload while GAM is still loading, which double-books the opportunity. `App.tsx`
+wires all six and renders them, which is also how you tell whether CloudX is filling: if the status
+line only ever reads `(gam)`, check the app key, the ad unit ids and the dashboard config.

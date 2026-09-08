@@ -54,67 +54,58 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { AdEventType, GAMInterstitialAd } from 'react-native-google-mobile-ads';
 import { CloudXInterstitialAd, useCloudXInterstitial } from 'cloudx-react-native';
 import { ATTEMPT_TIMEOUT_MS, CLOSE_SETTLE_MS } from '../config/adUnits';
+import type { FirstLookSource } from './FirstLookSource';
 
+/**
+ * Ad lifecycle events, named and shaped like the public Unity demo's
+ * FirstLookInterstitialController so one integration reads like the other.
+ * Every callback carries the source that served the ad.
+ *
+ * The hook never reloads for you. `onAdClosed`, `onAdLoadFailed` and
+ * `onAdShowFailed` each mean the opportunity is over — call `load()` from them.
+ */
 export type FirstLookInterstitialObserver = {
-  onCloudXError?: (error: string) => void;
-  onGamFallbackRequested?: () => void;
-  onGamLoaded?: () => void;
+  /** A source filled. `source` is the answer to "is CloudX actually filling?" */
+  onAdLoaded?: (source: FirstLookSource) => void;
   /**
-   * The GAM fallback request went silent past ATTEMPT_TIMEOUT_MS.
+   * The opportunity is over with no ad: both sources missed.
    *
-   * Call `load()` from here. A request that never answers produces no close
-   * event, so nothing else reports that the opportunity is over — without a
-   * load the slot stays `isReady === false` for the rest of the session. As
-   * with `onClosed`, the hook does not reload for you.
+   * Deliberately NOT emitted for the CloudX miss on its own. That miss is not
+   * terminal — it is what triggers the GAM fallback — so reporting it here
+   * would have the app back off and reload while GAM is still loading, which
+   * double-books the opportunity. Only `'gam'` is emitted today, for the same
+   * reason the Unity controller only raises AdLoadFailed once the fallback has
+   * failed too.
    */
-  onGamLoadTimeout?: () => void;
+  onAdLoadFailed?: (source: FirstLookSource, error: string) => void;
   /**
-   * The GAM fallback answered with an error — both sources missed, so the
-   * opportunity is over.
-   *
-   * Call `load()` from here too. This is the common no-fill path (CloudX
-   * misses, then GAM misses) and it produces no close and no timeout, so it is
-   * the only signal for it.
+   * An ad was presented — confirmed by the SDK, not inferred from calling
+   * show(). CloudX reports this through its displayed event and GAM through
+   * OPENED, so either way it means the ad actually appeared.
    */
-  onGamFailed?: () => void;
+  onAdShown?: (source: FirstLookSource) => void;
   /**
-   * An ad reported loaded but failed to present.
+   * A loaded ad could not be presented. The opportunity is over.
    *
    * Only `'gam'` is emitted today: showCloudX() returns void, and CloudX
    * display failures arrive as an error on the load path, which is what
    * triggers the fallback. The union keeps both sources so this stays source
    * compatible if that changes.
    *
-   * The opportunity is over when this fires: the ad was consumed by a failed
-   * presentation, no close will follow, and the ready flags are already
-   * cleared. Reload from here as you would from `onClosed`.
-   *
-   * For a presentation that could not be attempted at all — the fill is still
-   * in hand — see `onShowDeferred`.
+   * Two paths reach it, and the app treats them the same way (reload) even
+   * though they differ underneath: a GAM ERROR raised while presenting, where
+   * the ad was consumed; and the plugin's show() promise rejecting, where it
+   * was not — see the note on that rejection in show() below.
    */
-  onShowFailed?: (source: 'cloudx' | 'gam', error: string) => void;
-  /**
-   * The ad could not be presented right now, but it is still loaded.
-   *
-   * This is the plugin rejecting the show call itself — on Android, no current
-   * Activity, which happens when the app is not foregrounded. Nothing was
-   * consumed, so do NOT reload: `load()` would no-op against the fill you
-   * still hold. Call `show()` again when presenting is possible.
-   */
-  onShowDeferred?: (source: 'gam', error: string) => void;
-  /**
-   * An ad was presented — confirmed by the SDK, not inferred from calling
-   * show(). CloudX reports this through its displayed event and GAM through
-   * OPENED, so either way it means the ad actually appeared.
-   */
-  onShown?: (source: 'cloudx' | 'gam') => void;
+  onAdShowFailed?: (source: FirstLookSource, error: string) => void;
   /**
    * The ad closed and the opportunity is over. Call `load()` from here to
    * prepare the next one — the hook deliberately does not reload for you, so
    * the app decides when a new load is appropriate.
    */
-  onClosed?: (source: 'cloudx' | 'gam') => void;
-  onNothingReady?: () => void;
+  onAdClosed?: (source: FirstLookSource) => void;
+  /** The user tapped the ad. Reporting only; the placement is unaffected. */
+  onAdClicked?: (source: FirstLookSource) => void;
 };
 
 export function useFirstLookInterstitial(
@@ -263,15 +254,15 @@ export function useFirstLookInterstitial(
   // goes false, and the slot stays dead for the rest of the session. The GAM
   // leg below already handles its own CLOSED; this makes the two symmetric.
   /*
-   * These two listeners are SINGLETON per event: the SDK's addEventListener
-   * removes any existing subscription before installing the new one, and
-   * removeAdHiddenEventListener removes that one global subscription rather
-   * than a particular caller's. So this hook must be the only thing in the app
-   * subscribing to the interstitial hidden and displayed events. Mount it twice,
-   * or subscribe anywhere else, and the earlier listener goes deaf with no
-   * error. cloudx-react-native 3.4.7 does not export the shared
-   * NativeEventEmitter (cloudXEventEmitter was added later), which is what a
-   * multi-subscriber app would need.
+   * The three listeners below — displayed, hidden and clicked — are SINGLETON
+   * per event: the SDK's addEventListener removes any existing subscription
+   * before installing the new one, and removeAd*EventListener removes that one
+   * global subscription rather than a particular caller's. So this hook must be
+   * the only thing in the app subscribing to the interstitial displayed, hidden
+   * and clicked events. Mount it twice, or subscribe anywhere else, and the
+   * earlier listener goes deaf with no error. cloudx-react-native 3.4.7 does
+   * not export the shared NativeEventEmitter (cloudXEventEmitter was added
+   * later), which is what a multi-subscriber app would need.
    */
   useEffect(() => {
     CloudXInterstitialAd.addAdDisplayedEventListener(adInfo => {
@@ -279,7 +270,7 @@ export function useFirstLookInterstitial(
       if (adInfo?.adUnitId !== cloudXAdUnitId || !presentingRef.current) {
         return;
       }
-      observerRef.current?.onShown?.('cloudx');
+      observerRef.current?.onAdShown?.('cloudx');
     });
     return () => CloudXInterstitialAd.removeAdDisplayedEventListener();
   }, [cloudXAdUnitId]);
@@ -288,14 +279,14 @@ export function useFirstLookInterstitial(
     CloudXInterstitialAd.addAdHiddenEventListener(adInfo => {
       /*
        * An event for another placement is not this slot's close, and a close
-       * this hook did not present is not its opportunity — firing onClosed,
+       * this hook did not present is not its opportunity — firing onAdClosed,
        * whose documented use is to reload, would invent one that never
        * happened.
        */
       if (adInfo?.adUnitId !== cloudXAdUnitId || !presentingRef.current) {
         return;
       }
-      // Before the observer runs, not after: `onClosed` is where the app
+      // Before the observer runs, not after: `onAdClosed` is where the app
       // reloads, and the guards in load() read state.current.
       state.current.isCloudXLoaded = false;
       presentingRef.current = false;
@@ -307,9 +298,26 @@ export function useFirstLookInterstitial(
         settleTimer.current = null;
         settlingAfterCloseRef.current = false;
       }, CLOSE_SETTLE_MS);
-      observerRef.current?.onClosed?.('cloudx');
+      observerRef.current?.onAdClosed?.('cloudx');
     });
     return () => CloudXInterstitialAd.removeAdHiddenEventListener();
+  }, [cloudXAdUnitId]);
+
+  useEffect(() => {
+    CloudXInterstitialAd.addAdClickedEventListener(adInfo => {
+      /*
+       * Reporting only. A click leaves the placement exactly as it was, so
+       * nothing here touches presentingRef, state.current or any latch — and
+       * there is no presentingRef check either: a click can only reach a
+       * presented ad, and gating on the latch would drop clicks that arrive in
+       * the same tick as the close.
+       */
+      if (adInfo?.adUnitId !== cloudXAdUnitId) {
+        return;
+      }
+      observerRef.current?.onAdClicked?.('cloudx');
+    });
+    return () => CloudXInterstitialAd.removeAdClickedEventListener();
   }, [cloudXAdUnitId]);
 
   useEffect(() => {
@@ -322,13 +330,18 @@ export function useFirstLookInterstitial(
        * The SDK reports actual presentation here.
        */
       if (type === AdEventType.OPENED) {
-        observerRef.current?.onShown?.('gam');
+        observerRef.current?.onAdShown?.('gam');
+      }
+      // Reporting only: a click changes no state here, so it must not touch
+      // presentingRef or the state.current mirror.
+      if (type === AdEventType.CLICKED) {
+        observerRef.current?.onAdClicked?.('gam');
       }
       if (type === AdEventType.LOADED) {
         clearGamLoadTimer();
         state.current.isGamLoaded = true;
         setIsGamLoaded(true);
-        observerRef.current?.onGamLoaded?.();
+        observerRef.current?.onAdLoaded?.('gam');
       }
       // CLOSED clears the flag as well as ERROR: a shown-and-dismissed ad is
       // consumed, so the next opportunity must start fresh at CloudX rather
@@ -350,14 +363,17 @@ export function useFirstLookInterstitial(
         // Flags first, then the observer: every branch here is a place an app
         // reloads from, and load() reads them.
         if (type === AdEventType.CLOSED) {
-          observerRef.current?.onClosed?.('gam');
+          observerRef.current?.onAdClosed?.('gam');
         } else if (wasPresenting) {
           const message =
             (payload as { message?: string } | undefined)?.message ??
             'GAM failed to present';
-          observerRef.current?.onShowFailed?.('gam', message);
+          observerRef.current?.onAdShowFailed?.('gam', message);
         } else {
-          observerRef.current?.onGamFailed?.();
+          const message =
+            (payload as { message?: string } | undefined)?.message ??
+            'GAM no-fill';
+          observerRef.current?.onAdLoadFailed?.('gam', message);
         }
       }
     });
@@ -444,8 +460,6 @@ export function useFirstLookInterstitial(
 
     handledErrorRef.current = errorKey;
     gamLoadRequested.current = true;
-    observerRef.current?.onCloudXError?.(errorKey);
-    observerRef.current?.onGamFallbackRequested?.();
     /*
      * The latch stops a second GAM load racing the first, but GAM answering is
      * what clears it. A request that never calls back would leave it set for
@@ -457,11 +471,14 @@ export function useFirstLookInterstitial(
     gamLoadTimer.current = setTimeout(() => {
       gamLoadTimer.current = null;
       /*
-       * Clear before the observer, like the close handlers: onGamLoadTimeout
+       * Clear before the observer, like the close handlers: onAdLoadFailed
        * is where an app would retry, and load() reads this latch.
        */
       gamLoadRequested.current = false;
-      observerRef.current?.onGamLoadTimeout?.();
+      observerRef.current?.onAdLoadFailed?.(
+        'gam',
+        `GAM did not answer within ${ATTEMPT_TIMEOUT_MS}ms; its ad object cannot load again this session`,
+      );
       /*
        * Clearing the latch keeps the slot alive — the next load() goes to
        * CloudX as usual — but it does not revive the GAM leg. The plugin's
@@ -476,6 +493,25 @@ export function useFirstLookInterstitial(
     }, ATTEMPT_TIMEOUT_MS);
     gamInterstitial.load();
   }, [clearGamLoadTimer, cloudXError, gamInterstitial, loadCloudX]);
+
+  /*
+   * CloudX fill signal. useCloudXInterstitial reports isLoaded as state, not as
+   * an event, so this edge-detects the false -> true transition and emits once.
+   * The ref is what makes it once: without it every re-render while an ad is
+   * held would emit again. It re-arms on the way down, so the settle-path
+   * reload after a close reports its fill too.
+   */
+  const reportedCloudXFill = useRef(false);
+
+  useEffect(() => {
+    if (isCloudXLoaded === reportedCloudXFill.current) {
+      return;
+    }
+    reportedCloudXFill.current = isCloudXLoaded;
+    if (isCloudXLoaded) {
+      observerRef.current?.onAdLoaded?.('cloudx');
+    }
+  }, [isCloudXLoaded]);
 
   const load = useCallback(() => {
     const current = state.current;
@@ -505,11 +541,11 @@ export function useFirstLookInterstitial(
 
     if (current.isCloudXLoaded) {
       /*
-       * No onShown here. showCloudX() returns void, so returning from it says
+       * No onAdShown here. showCloudX() returns void, so returning from it says
        * the show was requested, not that anything appeared — and a CloudX
        * display failure surfaces asynchronously as cloudXError, which would
        * leave an impression already counted for an ad that never showed.
-       * onShown('cloudx') is emitted from the SDK's displayed event instead.
+       * onAdShown('cloudx') is emitted from the SDK's displayed event instead.
        */
       presentingRef.current = true;
       showCloudX();
@@ -530,24 +566,35 @@ export function useFirstLookInterstitial(
     if (gamInterstitial.loaded) {
       /*
        * Rejection only. A resolved promise means the native show call was
-       * made, not that an ad appeared — onShown is emitted from the OPENED
+       * made, not that an ad appeared — onAdShown is emitted from the OPENED
        * event instead.
        *
-       * A rejection means the call never reached the ad, so nothing was
-       * consumed and `loaded` is still true. That is deliberately NOT
-       * onShowFailed: that callback says the opportunity is over and tells the
-       * app to reload, and a reload here would hit the isGamLoaded guard in
-       * load() and prepare nothing while a perfectly good fill sits unused.
+       * Resetting presentingRef is not optional: the rejection emits no plugin
+       * event, so nothing else clears the latch and show() would report
+       * not-shown for the rest of the session.
+       *
+       * Reported as onAdShowFailed, matching the Unity controller, which routes
+       * the same condition (OnAdFullScreenContentFailed) there. Saying nothing
+       * is worse than the alternative: show() has already returned true, so an
+       * app waiting for the close before resuming its flow would wait forever.
+       *
+       * One difference from Unity worth knowing. Unity destroys the ad first,
+       * so the app's reload is meaningful; here the rejection emits no event,
+       * isGamLoaded is never cleared, and MobileAd exposes no dispose — so the
+       * fill stays held. A reload from this callback therefore early-returns in
+       * load(), and isReady stays true so the next show() presents the ad that
+       * is still in hand. That is the better outcome anyway, since the failure
+       * is environmental. It does leave the app's backoff counter one step
+       * further along than the facts warrant.
        */
       presentingRef.current = true;
       Promise.resolve(gamInterstitial.show()).catch(error => {
         presentingRef.current = false;
-        observerRef.current?.onShowDeferred?.('gam', String(error));
+        observerRef.current?.onAdShowFailed?.('gam', String(error));
       });
       return true;
     }
 
-    observerRef.current?.onNothingReady?.();
     return false;
   }, [gamInterstitial, showCloudX]);
 

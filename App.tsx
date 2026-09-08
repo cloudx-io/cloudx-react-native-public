@@ -94,6 +94,24 @@ function InterstitialDemo() {
   const retryTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const loadRef = useRef<() => void>(() => {});
 
+  /*
+   * Every observer callback is rendered here, the way the public Unity demo's
+   * FirstLookScreen does it. It is what makes the source visible: if this only
+   * ever reads `(gam)`, CloudX is not filling and the app key, the ad unit ids
+   * or the dashboard config is wrong — not this hook.
+   */
+  const [adStatus, setAdStatus] = useState('idle');
+
+  /*
+   * Status line and log, together. The line shows the current state; the log
+   * keeps the sequence, which the line cannot — a close is followed instantly
+   * by the reload's fill, so "Closed" would never be readable on screen.
+   */
+  const report = useCallback((text: string) => {
+    setAdStatus(text);
+    console.log(`[FirstLook] interstitial: ${text}`);
+  }, []);
+
   const scheduleRetry = useCallback(() => {
     const delaySeconds = Math.min(
       2 ** retryAttempt.current,
@@ -113,33 +131,37 @@ function InterstitialDemo() {
     AD_UNITS.cloudXInterstitialAdUnitId,
     AD_UNITS.gamInterstitialAdUnitId,
     {
+      onAdLoaded: source => report(`Loaded (${source})`),
+      onAdShown: source => report(`Showing (${source})`),
+      onAdClicked: source => report(`Clicked (${source})`),
       /*
        * Prepare the next opportunity once the current one is over. Showing
        * consumes the ad, so without this the slot is dead after the first
        * impression — isReady never returns true again.
        */
-      onClosed: () => load(),
+      onAdClosed: source => {
+        report(`Closed (${source})`);
+        load();
+      },
       /*
-       * A GAM request that went silent produces no close event, so nothing
-       * else would re-arm the slot.
+       * Both sources missed, or the GAM request went silent. Neither produces a
+       * close, so without this the slot would stay empty.
        */
-      onGamLoadTimeout: scheduleRetry,
+      onAdLoadFailed: (source, error) => {
+        report(`Load failed (${source}): ${error}`);
+        scheduleRetry();
+      },
       /*
-       * Both sources missed. Nothing closes and nothing times out on this
-       * path, so without this the slot would stay empty.
+       * A presentation that failed ends the opportunity with no ad shown and no
+       * close to follow, so it needs the same backed-off retry. On the GAM
+       * show-promise rejection the fill is actually still held, so this retry
+       * early-returns in load() and the next tap shows the held ad — see the
+       * note on that rejection in the hook.
        */
-      onGamFailed: scheduleRetry,
-      /*
-       * A presentation that failed ends the opportunity with no ad shown and
-       * no close to follow, so it needs the same backed-off retry.
-       */
-      onShowFailed: scheduleRetry,
-      /*
-       * Deliberately no reload. The ad is still loaded — it just could not be
-       * presented at that moment — so isReady stays true and the next tap
-       * shows it. Reloading would no-op and waste the fill.
-       */
-      onShowDeferred: () => {},
+      onAdShowFailed: (source, error) => {
+        report(`Show failed (${source}): ${error}`);
+        scheduleRetry();
+      },
     },
   );
 
@@ -173,6 +195,7 @@ function InterstitialDemo() {
 
   return (
     <View>
+      <Text style={styles.status}>{adStatus}</Text>
       <Button
         title={isReady ? 'Show interstitial' : 'Loading…'}
         // Deliberately NOT disabled while loading. show() already reports
