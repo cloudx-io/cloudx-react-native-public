@@ -35,13 +35,7 @@ class MainApplication : Application(), ReactApplication {
   override fun onCreate() {
     super.onCreate()
 
-    /*
-     * Debug only: verbose SDK logging is noisy and prints diagnostic detail
-     * that a release build has no reason to emit.
-     */
-    if (BuildConfig.DEBUG) {
-      CloudX.setMinLogLevel(CloudXLogLevel.VERBOSE)
-    }
+    CloudX.setMinLogLevel(CloudXLogLevel.VERBOSE)
 
     SoLoader.init(this, OpenSourceMergedSoMapping)
     if (BuildConfig.IS_NEW_ARCHITECTURE_ENABLED) {
