@@ -1,7 +1,13 @@
 source 'https://rubygems.org'
 
-# You may use http://rbenv.org/ or https://rvm.io/ to install and use this version
-ruby ">= 2.6.10"
+# You may use http://rbenv.org/ or https://rvm.io/ to install and use this version.
+#
+# 3.2 is the floor the committed Gemfile.lock actually needs — connection_pool
+# 3.0.2 in that lock requires >= 3.2.0. Leaving this at the React Native
+# template's 2.6.10 let an older Ruby pass this check and then fail to install
+# the locked set, at which point Bundler re-resolves and rewrites the lockfile,
+# which is the drift committing it was meant to stop.
+ruby ">= 3.2.0"
 
 # Pinned to the toolchain that generated ios/Podfile.lock (see its COCOAPODS
 # line). A floating constraint resolves a different CocoaPods than the lockfile

@@ -132,6 +132,11 @@ npm ci
 # Through Bundler, not global CocoaPods. The Gemfile pins CocoaPods to the
 # 1.16.2 that generated ios/Podfile.lock; a global `pod install` can be any
 # version and will happily regenerate the workspace with a different toolchain.
+#
+# Needs Ruby >= 3.2 (what the committed Gemfile.lock resolves against) and a
+# Bundler that can read it — the lock records BUNDLED WITH 4.0.11. On an older
+# Ruby, Bundler cannot install the locked set and will re-resolve, rewriting
+# the lockfile.
 bundle install
 (cd ios && bundle exec pod install)
 
