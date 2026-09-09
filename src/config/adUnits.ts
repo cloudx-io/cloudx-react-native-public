@@ -15,9 +15,9 @@
  * ---------------------------------------------------------------------------
  * WHY THESE SPECIFIC CLOUDX AD UNITS
  * ---------------------------------------------------------------------------
- * These are the placements of the public CloudX sample app, the same ones the
- * public Unity demo uses. Both demos resolve against the app identifier
- * `io.cloudx.sample` on iOS and Android, so the dashboard config is shared.
+ * These are the placements of the public CloudX sample app, which resolves
+ * against the app identifier `io.cloudx.sample` on iOS and Android. Replace
+ * them, and the app key, with your own.
  *
  * Do not point this at a `gw-admob-*` placement. Those route AdMob demand
  * *through* CloudX's Google Waterfall adapter, which is the opposite of First
@@ -50,17 +50,10 @@ import { Platform } from 'react-native';
 import { TestIds } from 'react-native-google-mobile-ads';
 
 /*
- * WHY THE ADMOB TEST IDS AND NOT TestIds.GAM_*:
- * Historically the refresh cycle restarted on the `onPaid` revenue callback,
- * and Google's Ad Manager sample tags (`/6499/example/...`) fill through a real
- * AdManagerAdView but never emit it — verified on emulator 2026-08-19: fill at
- * +2s, no paid event within 148s, twice. That stalled the cycle, so the demo
- * used the AdMob test ids instead, which do emit paid events.
- *
- * The cycle now restarts on the fill, so nothing here depends on `onPaid` any
- * more and the sample tags would work. The ids are left alone deliberately:
- * switching them is a separate change with its own verification, not a
- * side effect of the trigger swap.
+ * The GAM placements below are Google's AdMob test ids. They serve a test
+ * creative through `GAMBannerAd` and `GAMInterstitialAd` without needing an Ad
+ * Manager account, so the fallback leg is demonstrable out of the box. Replace
+ * them with your own Ad Manager ad units.
  */
 
 export type FirstLookAdUnits = {
@@ -71,9 +64,8 @@ export type FirstLookAdUnits = {
   /** CloudX interstitial placement. */
   cloudXInterstitialAdUnitId: string;
   /*
-   * Carried so this config matches the public Unity demo's DemoConfig
-   * field-for-field. This demo renders a banner and an interstitial only, so
-   * nothing reads the three below yet.
+   * The sample app's remaining placements. This demo renders a banner and an
+   * interstitial only, so nothing reads the three below.
    */
   /** CloudX MREC placement. Dashboard refresh rate must be 0. */
   cloudXMrecAdUnitId: string;

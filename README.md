@@ -181,16 +181,12 @@ for the CloudX miss on its own — that miss is what starts the GAM attempt.
 exposes no banner click event on either platform. The interstitial is unaffected and reports clicks
 from both sources.
 
-Unity's banner has three events this one does not (`AdShown`, `AdHidden`, `ShowPending`), because a
-Unity banner is toggled through `Show()`/`Hide()` while this one is hidden by not rendering it. One
-consequence is worth knowing: the cycle pauses while the app is backgrounded — on iOS that includes
-the ATT prompt, Control Centre and the app switcher — and nothing reports it. Watch `AppState`
-yourself if you need to see it.
+One silence is worth knowing about: the cycle pauses while the app is backgrounded — on iOS that
+includes the ATT prompt, Control Centre and the app switcher — and no callback reports it. Watch
+`AppState` yourself if you need to see it.
 
-`useFirstLookInterstitial` takes an observer too, named and shaped like the
-[public Unity demo's](https://github.com/cloudx-io/cloudx-unity) `FirstLookInterstitialController` so
-the two integrations read alike. Six callbacks, each carrying the source that served the ad
-(`'cloudx'` or `'gam'`):
+`useFirstLookInterstitial` takes an observer too. Six callbacks, each carrying the source that served
+the ad (`'cloudx'` or `'gam'`):
 
 | callback | meaning |
 | --- | --- |

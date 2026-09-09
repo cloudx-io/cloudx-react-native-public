@@ -133,10 +133,9 @@ function InterstitialDemo() {
   const loadRef = useRef<() => void>(() => {});
 
   /*
-   * Every observer callback is rendered here, the way the public Unity demo's
-   * FirstLookScreen does it. It is what makes the source visible: if this only
-   * ever reads `(gam)`, CloudX is not filling and the app key, the ad unit ids
-   * or the dashboard config is wrong — not this hook.
+   * Every observer callback is rendered here, which is what makes the source
+   * visible: if this only ever reads `(gam)`, CloudX is not filling and the app
+   * key, the ad unit ids or the dashboard config is wrong — not this hook.
    */
   const [adStatus, setAdStatus] = useState('idle');
 

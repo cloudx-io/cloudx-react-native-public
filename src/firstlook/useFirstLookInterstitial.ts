@@ -9,8 +9,8 @@
  * fallback for that opportunity. After a show and close, the next opportunity
  * starts back at CloudX.
  *
- * As with the banner hook, the logic matches the documented version and the
- * only addition is the optional `observer`.
+ * As with the banner hook, the only addition to the documented pattern is the
+ * optional `observer`.
  *
  * ---------------------------------------------------------------------------
  * ERROR PATHS — the part that is easy to get wrong
@@ -57,9 +57,7 @@ import { ATTEMPT_TIMEOUT_MS, CLOSE_SETTLE_MS } from '../config/adUnits';
 import type { FirstLookSource } from './FirstLookSource';
 
 /**
- * Ad lifecycle events, named and shaped like the public Unity demo's
- * FirstLookInterstitialController so one integration reads like the other.
- * Every callback carries the source that served the ad.
+ * Ad lifecycle events. Every callback carries the source that served the ad.
  *
  * The hook never reloads for you. `onAdClosed`, `onAdLoadFailed` and
  * `onAdShowFailed` each mean the opportunity is over — call `load()` from them.
@@ -73,9 +71,7 @@ export type FirstLookInterstitialObserver = {
    * Deliberately NOT emitted for the CloudX miss on its own. That miss is not
    * terminal — it is what triggers the GAM fallback — so reporting it here
    * would have the app back off and reload while GAM is still loading, which
-   * double-books the opportunity. Only `'gam'` is emitted today, for the same
-   * reason the Unity controller only raises AdLoadFailed once the fallback has
-   * failed too.
+   * double-books the opportunity. Only `'gam'` is emitted today.
    */
   onAdLoadFailed?: (source: FirstLookSource, error: string) => void;
   /**
@@ -581,19 +577,17 @@ export function useFirstLookInterstitial(
        * event, so nothing else clears the latch and show() would report
        * not-shown for the rest of the session.
        *
-       * Reported as onAdShowFailed, matching the Unity controller, which routes
-       * the same condition (OnAdFullScreenContentFailed) there. Saying nothing
-       * is worse than the alternative: show() has already returned true, so an
-       * app waiting for the close before resuming its flow would wait forever.
+       * Reported as onAdShowFailed because saying nothing is worse: show() has
+       * already returned true, so an app waiting for the close before resuming
+       * its flow would wait forever.
        *
-       * One difference from Unity worth knowing. Unity destroys the ad first,
-       * so the app's reload is meaningful; here the rejection emits no event,
-       * isGamLoaded is never cleared, and MobileAd exposes no dispose — so the
-       * fill stays held. A reload from this callback therefore early-returns in
-       * load(), and isReady stays true so the next show() presents the ad that
-       * is still in hand. That is the better outcome anyway, since the failure
-       * is environmental. It does leave the app's backoff counter one step
-       * further along than the facts warrant.
+       * The fill is not lost. The rejection emits no plugin event, isGamLoaded
+       * is never cleared, and MobileAd exposes no dispose, so the ad stays
+       * held: a reload from this callback early-returns in load(), isReady
+       * stays true, and the next show() presents the ad that is still in hand.
+       * That is the right outcome, since the failure is environmental — it only
+       * leaves the app's backoff counter one step further along than the facts
+       * warrant.
        */
       presentingRef.current = true;
       Promise.resolve(gamInterstitial.show()).catch(error => {

@@ -4,9 +4,8 @@
  * Reference implementation of the pattern documented at
  * https://docs.cloudx.io/en/react-native/integrations/first-look
  *
- * The cycle logic below is kept identical to the documented hook so the two
- * cannot drift. The only additions are the optional `observer` callbacks, which
- * exist so a host can observe the cycle — see the note above the type.
+ * The only addition to the documented pattern is the optional `observer`, which
+ * reports what the cycle is doing — see the note above the type.
  *
  * ---------------------------------------------------------------------------
  * WHY THE APP OWNS REFRESH
@@ -122,14 +121,12 @@ export type FirstLookBannerObserver = {
    * SDK's click delegate — so a GAM banner click is not reported here. Its
    * onAdOpened prop is a visibility signal, raised only when the ad presents a
    * screen inside the app, and using it would both miss clicks that leave the
-   * app and report overlays that were never tapped. See the note at the
-   * GAMBannerAd in FirstLookBannerSlot.
+   * app and report overlays that were never tapped.
    *
    * https://github.com/invertase/react-native-google-mobile-ads
    *
-   * The interstitial is not affected: fullscreen ads do have a real click
-   * delegate on both platforms, so useFirstLookInterstitial reports clicks
-   * from both sources.
+   * Fullscreen ads are unaffected: they do have a real click delegate on both
+   * platforms, so the interstitial reports clicks from both sources.
    */
   onAdClicked?: (source: FirstLookSource) => void;
 };
@@ -297,8 +294,7 @@ export function useFirstLookBanner(observer?: FirstLookBannerObserver) {
     /*
      * The CloudX miss is not reported: it is not terminal, it is what starts
      * the GAM attempt below. Reporting it would describe a cycle that is still
-     * running as a failure — and it is the reload trigger on the interstitial,
-     * so the two must agree.
+     * running as a failure.
      */
     if (failed.source === 'cloudx') {
       startAttempt('gam');
