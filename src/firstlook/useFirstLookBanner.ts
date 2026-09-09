@@ -91,31 +91,19 @@ export type FirstLookAttempt = {
 };
 
 /**
- * Optional instrumentation, named and shaped like the public Unity demo's
- * FirstLookBannerCycle so the two integrations read alike. Every callback
- * carries the source that served the ad.
+ * Optional instrumentation. Every callback carries the source that served the
+ * ad.
  *
  * Not part of the documented pattern. Pass an observer to log or assert that
  * the fallback and the return-to-CloudX actually happen; most callers pass
  * nothing. Kept out of the cycle logic below so the hook stays copy-pasteable
  * as written.
- *
- * Three of the Unity cycle's six. The other three describe a lifecycle this
- * banner does not have:
- *
- *   AdShown       Unity banks a fill and shows it later, so load and display
- *                 are separate moments. Here a fill is promoted the instant it
- *                 arrives, so it would always fire alongside onAdLoaded.
- *   AdHidden      Unity's banner is toggled through Show()/Hide(). This one is
- *                 hidden by not rendering it, which React already reports.
- *   ShowPending   Same reason.
- *
- * Unity's PassSpent has no counterpart either, but for a different reason: it
- * never reaches a Unity publisher, being a seam between its controller and its
- * cycle. This hook is both, so there is nothing to cross.
  */
 export type FirstLookBannerObserver = {
-  /** A source filled and the ad went on screen — one moment, see above. */
+  /**
+   * A source filled and the ad went on screen. One moment, not two: a fill is
+   * promoted to the visible slot as soon as it arrives.
+   */
   onAdLoaded?: (source: FirstLookSource) => void;
   /**
    * The opportunity is over with no ad: both sources missed.
@@ -123,8 +111,7 @@ export type FirstLookBannerObserver = {
    * Deliberately NOT emitted for the CloudX miss on its own. That miss is not
    * terminal — it is what starts the GAM attempt — so reporting it here would
    * describe a cycle that is still running as a failure. Only `'gam'` is
-   * emitted today, for the same reason the Unity controller only raises
-   * AdLoadFailed once the fallback has failed too.
+   * emitted today.
    */
   onAdLoadFailed?: (source: FirstLookSource, error: string) => void;
   /**
