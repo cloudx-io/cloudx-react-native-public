@@ -176,14 +176,10 @@ renders them, so the status line above the banner names whichever SDK served the
 The same terminal-only rule applies: `onAdLoadFailed` fires when **both** sources have missed, never
 for the CloudX miss on its own — that miss is what starts the GAM attempt.
 
-`onAdClicked` reports CloudX banner clicks only.
+`onAdClicked` reports CloudX banner clicks only:
 [`react-native-google-mobile-ads`](https://github.com/invertase/react-native-google-mobile-ads)
-exposes no banner click event on either platform — its iOS view never implements
-`bannerViewDidRecordClick` and its Android manager never maps `AdListener.onAdClicked`. The nearest
-props, `onAdOpened` and `onAdClosed`, fire only when the ad presents a screen inside the app, so they
-miss any click whose destination opens externally: verified on the iOS simulator, where Google's test
-banner opens Safari and neither fires. The interstitial is unaffected — fullscreen ads do have a real
-click delegate, so `useFirstLookInterstitial` reports clicks from both sources.
+exposes no banner click event on either platform. The interstitial is unaffected and reports clicks
+from both sources.
 
 Unity's banner has three events this one does not (`AdShown`, `AdHidden`, `ShowPending`), because a
 Unity banner is toggled through `Show()`/`Hide()` while this one is hidden by not rendering it. One
