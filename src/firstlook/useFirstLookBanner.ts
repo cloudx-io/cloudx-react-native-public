@@ -127,7 +127,23 @@ export type FirstLookBannerObserver = {
    * AdLoadFailed once the fallback has failed too.
    */
   onAdLoadFailed?: (source: FirstLookSource, error: string) => void;
-  /** The user tapped the ad. Reporting only; the cycle is unaffected. */
+  /**
+   * The user tapped the ad. Reporting only; the cycle is unaffected.
+   *
+   * CloudX only. react-native-google-mobile-ads exposes no banner click event
+   * on either platform — neither its iOS view nor its Android manager wires the
+   * SDK's click delegate — so a GAM banner click is not reported here. Its
+   * onAdOpened prop is a visibility signal, raised only when the ad presents a
+   * screen inside the app, and using it would both miss clicks that leave the
+   * app and report overlays that were never tapped. See the note at the
+   * GAMBannerAd in FirstLookBannerSlot.
+   *
+   * https://github.com/invertase/react-native-google-mobile-ads
+   *
+   * The interstitial is not affected: fullscreen ads do have a real click
+   * delegate on both platforms, so useFirstLookInterstitial reports clicks
+   * from both sources.
+   */
   onAdClicked?: (source: FirstLookSource) => void;
 };
 

@@ -75,11 +75,29 @@ function SlotAd({
             onLoadFailed(attempt.key, error?.message ?? 'GAM no-fill')
           }
           /*
-           * The plugin has no onAdClicked for banners. onAdOpened is the
-           * click: it fires when the ad opens its overlay, which on a banner
-           * only happens on a tap.
+           * No click wiring, deliberately. react-native-google-mobile-ads
+           * exposes no banner click event on either platform: its iOS view
+           * never implements GADBannerViewDelegate's bannerViewDidRecordClick,
+           * and its Android manager never maps AdListener.onAdClicked. The
+           * props it does offer are onAdOpened ("the ad is now visible to the
+           * user") and onAdClosed ("about to return to the app after tapping
+           * on an ad"), and both are raised only when the ad presents a screen
+           * INSIDE the app.
+           *
+           * That makes either one wrong as a click signal, in both directions.
+           * It misses a click whose destination leaves the app — verified on
+           * the iOS simulator, where Google's test banner opens Safari and
+           * neither prop fires — and it would report an expandable creative
+           * that opens an overlay without a tap.
+           *
+           * onAdOpened does happen to fire on an Android tap, because there
+           * the destination opens in-app. That is the creative's behaviour,
+           * not a contract, so it is not used here: a callback that fires on
+           * one platform and silently never on the other is worse than one
+           * that is documented as absent.
+           *
+           * https://github.com/invertase/react-native-google-mobile-ads
            */
-          onAdOpened={() => onClicked(attempt.key)}
         />
       )}
     </View>
