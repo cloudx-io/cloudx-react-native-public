@@ -1,0 +1,11 @@
+pluginManagement { includeBuild("../node_modules/@react-native/gradle-plugin") }
+plugins { id("com.facebook.react.settings") }
+extensions.configure(com.facebook.react.ReactSettingsExtension){ ex -> ex.autolinkLibrariesFromCommand() }
+rootProject.name = 'CloudXReactNativeDemo'
+include ':app'
+includeBuild('../node_modules/@react-native/gradle-plugin')
+
+// cloudx-react-native is resolved by standard autolinking from node_modules
+// (see autolinkLibrariesFromCommand() above). This app depends on the published
+// registry version of the wrapper, so no manual include or source path is
+// needed — which is also what keeps the build reproducible.
