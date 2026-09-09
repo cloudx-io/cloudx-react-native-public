@@ -3,71 +3,34 @@
  *
  * Reference implementation of the pattern documented at
  * https://docs.cloudx.io/en/react-native/integrations/first-look
+ * The only addition is the optional `observer`, which reports what the cycle is
+ * doing.
  *
- * The only addition to the documented pattern is the optional `observer`, which
- * reports what the cycle is doing — see the note above the type.
- *
- * ---------------------------------------------------------------------------
- * WHY THE APP OWNS REFRESH
- * ---------------------------------------------------------------------------
- * Banners are normally refreshed by each SDK's own internal timer. With two
- * SDKs sharing one slot, two timers race: CloudX swaps in a new ad while GAM is
- * mid-load, impressions double-count, and neither SDK knows the other exists.
- *
- * So refresh is made explicit and the app owns the cycle:
- *   - CloudX auto-refresh off → dashboard ad unit refresh rate = 0
- *   - GAM auto-refresh off    → Google Ad Manager UI (or a non-refreshing unit)
- *
- * ---------------------------------------------------------------------------
  * THE CYCLE
- * ---------------------------------------------------------------------------
  *   1. Load a CloudX banner off-screen while the previous ad stays visible.
- *   2. On fill, swap it in — the previous ad unmounts, destroying its native view.
- *   3. On CloudX no-fill, load the GAM banner for this cycle instead.
- *   4. If both miss, retry from CloudX with an exponential delay (1,2,4,8...s).
- *   5. Once the ad is swapped in, wait REFRESH_DELAY_MS, then start again at
- *      CloudX. A new attempt only starts while the app is foregrounded; a load
- *      already in flight finishes normally.
+ *      Mounting the view is what starts the load, so "off-screen" means
+ *      "mounted hidden" — there is a fill ready when the refresh moment comes.
+ *   2. On fill, swap it in; the previous ad unmounts and its native view is
+ *      destroyed.
+ *   3. On CloudX no-fill, load GAM for this cycle only.
+ *   4. If both miss, back off (1,2,4,8...s) and retry from CloudX.
+ *   5. REFRESH_DELAY_MS after the swap, start again at CloudX.
  *
- * Step 5 is what makes this "first look on EVERY opportunity" rather than
- * "first look until CloudX misses once." A simpler one-way fallback — swap to
- * GAM on the first miss and let GAM own the slot until the screen is recreated
- * — is easier to build but permanently surrenders the placement after a single
- * no-fill. This hook always returns to CloudX.
+ * Step 5 is what makes this first look on EVERY opportunity. A one-way fallback
+ * that lets GAM keep the slot after one miss is easier to build and permanently
+ * surrenders the placement.
  *
- * ---------------------------------------------------------------------------
- * WHY LOADING HAPPENS OFF-SCREEN
- * ---------------------------------------------------------------------------
- * The next ad loads in the background while the current one is still visible,
- * so there is a fill ready the instant the refresh moment arrives — no empty
- * slot, and CloudX's optimistic loading has time to work. Mounting the view is
- * what triggers the load for both `CloudXBannerView` and GAM's `GAMBannerAd`,
- * so "load off-screen" means "mount hidden."
+ * Both SDKs' own refresh must be off — CloudX dashboard rate 0, GAM disabled in
+ * the Ad Manager UI — or two timers race over one slot.
  *
- * ---------------------------------------------------------------------------
- * WHAT STARTS THE NEXT CYCLE
- * ---------------------------------------------------------------------------
- * The fill does. Promotion happens in the same handler, so the ad is on screen
- * by the time the REFRESH_DELAY_MS clock starts.
+ * The cycle restarts on the fill, not on an impression, because neither view
+ * reports one. The revenue callback is the only proxy and it is a bad one: it
+ * has been measured firing 71s after the load, and an Ad Manager unit without
+ * impression-level revenue reporting never emits it at all, which would strand
+ * the slot on one ad forever.
  *
- * This deliberately does NOT wait for an impression. Neither view reports one:
- * `CloudXBannerView` exposes load, load-failed, click and revenue-paid, and
- * GAM's banner has no impression event before plugin v15.7.0. The revenue
- * callback is the only available proxy and it is a poor one, for two reasons.
- * It is slow — `onPaid` has been measured firing 71s after the load, on a
- * banner that was visible the whole time, which turns a 30s cadence into ~100s.
- * And it is optional: an Ad Manager unit without impression-level revenue
- * reporting never emits it at all, which would strand the slot on one ad
- * forever.
- *
- * ---------------------------------------------------------------------------
- * WHY THE FOREGROUND GATE
- * ---------------------------------------------------------------------------
- * Cycling on the fill removes the only thing that tied a refresh to the ad
- * having been displayed, so the gate puts a coarse version of that back: an
- * attempt never starts while the app is backgrounded, and a cycle deferred that
- * way resumes when the app returns. Without it a backgrounded app would keep
- * running auctions for ads nobody can see.
+ * An attempt never starts while the app is backgrounded; a cycle that comes due
+ * then runs when the app returns.
  */
 
 import { useCallback, useEffect, useRef, useState } from 'react';
@@ -90,43 +53,25 @@ export type FirstLookAttempt = {
 };
 
 /**
- * Optional instrumentation. Every callback carries the source that served the
- * ad.
- *
- * Not part of the documented pattern. Pass an observer to log or assert that
- * the fallback and the return-to-CloudX actually happen; most callers pass
- * nothing. Kept out of the cycle logic below so the hook stays copy-pasteable
- * as written.
+ * Optional. Reports what the cycle is doing; every callback carries the source
+ * that served the ad. The cycle runs whether or not you pass one.
  */
 export type FirstLookBannerObserver = {
-  /**
-   * A source filled and the ad went on screen. One moment, not two: a fill is
-   * promoted to the visible slot as soon as it arrives.
-   */
+  /** A fill, which is also the swap: it goes on screen in the same handler. */
   onAdLoaded?: (source: FirstLookSource) => void;
   /**
-   * The opportunity is over with no ad: both sources missed.
-   *
-   * Deliberately NOT emitted for the CloudX miss on its own. That miss is not
-   * terminal — it is what starts the GAM attempt — so reporting it here would
-   * describe a cycle that is still running as a failure. Only `'gam'` is
-   * emitted today.
+   * Both sources missed and the opportunity is over. Not raised for the CloudX
+   * miss alone — that one starts the GAM attempt, so the cycle is still
+   * running. Only `'gam'` is emitted today.
    */
   onAdLoadFailed?: (source: FirstLookSource, error: string) => void;
   /**
-   * The user tapped the ad. Reporting only; the cycle is unaffected.
+   * The user tapped the ad. Reporting only.
    *
-   * CloudX only. react-native-google-mobile-ads exposes no banner click event
-   * on either platform — neither its iOS view nor its Android manager wires the
-   * SDK's click delegate — so a GAM banner click is not reported here. Its
-   * onAdOpened prop is a visibility signal, raised only when the ad presents a
-   * screen inside the app, and using it would both miss clicks that leave the
-   * app and report overlays that were never tapped.
-   *
+   * CloudX banners only: react-native-google-mobile-ads wires no banner click
+   * event on either platform, so a GAM banner click cannot be reported. The
+   * interstitial is unaffected and reports both sources.
    * https://github.com/invertase/react-native-google-mobile-ads
-   *
-   * Fullscreen ads are unaffected: they do have a real click delegate on both
-   * platforms, so the interstitial reports clicks from both sources.
    */
   onAdClicked?: (source: FirstLookSource) => void;
 };
@@ -138,13 +83,10 @@ export function useFirstLookBanner(observer?: FirstLookBannerObserver) {
   const [loading, setLoading] = useState<FirstLookAttempt | null>(null);
   const loadingRef = useRef(loading);
   loadingRef.current = loading;
-  // The click handler needs the on-screen attempt without taking a dependency
-  // on it, for the same reason loadingRef exists for the load callbacks.
   const displayedRef = useRef(displayed);
   displayedRef.current = displayed;
 
-  // Held in a ref so the callbacks never need it in their dep arrays — an
-  // observer identity change must not tear down a running cycle.
+  // In a ref so a new observer identity never tears down a running cycle.
   const observerRef = useRef(observer);
   observerRef.current = observer;
 
@@ -156,43 +98,33 @@ export function useFirstLookBanner(observer?: FirstLookBannerObserver) {
   const failAttemptRef = useRef<(key: number, message: string) => void>(
     () => {},
   );
-  // Distinguishes "this attempt failed" from "this attempt never called back",
-  // which an observer needs to tell a real no-fill from a silent source.
+  // Tells a real no-fill from a source that never called back.
   const timedOut = useRef(false);
-  // A cycle came due while the app was backgrounded. The AppState effect below
-  // starts it when the app returns.
+  // A cycle came due while the app was backgrounded.
   const pendingCycle = useRef(false);
 
-  // Every attempt carries a timeout: an attempt that emits neither loaded nor
-  // failed (for example a view mounted before CloudX.initialize() completes)
-  // counts as a failure, so the slot cannot hang on a silent source.
+  // Every attempt is timed: a source that answers neither way counts as failed,
+  // so the slot cannot hang on it.
   const startAttempt = useCallback((source: FirstLookSource) => {
-    // The gate lives here rather than at the call sites: every way a cycle can
-    // start — the post-fill timer, the GAM fallback, the backoff retry — may
-    // come due with the app away. Only 'background' and 'inactive' count as
-    // away. 'unknown' is what React Native reports before it has resolved the
-    // state, and it can leave that state without emitting a 'change', which
-    // would strand a deferred cycle here with no timeout to rescue it. A
-    // deferred cycle resumes at CloudX: a gap in visibility ends the current
-    // opportunity, so the next one starts fresh.
+    /*
+     * Gated here so every entry point — the post-fill timer, the fallback, the
+     * backoff retry — is covered. 'unknown' does not count as away: React
+     * Native reports it before resolving, and can leave it without a 'change'
+     * event, stranding the cycle with nothing to restart it.
+     */
     const appState = AppState.currentState;
     if (appState === 'background' || appState === 'inactive') {
       pendingCycle.current = true;
-      // Cancel the attempt outright: the hidden view, and the timeout that
-      // would have policed it.
+      // Cancel the attempt outright: the hidden view and its timeout.
       if (attemptTimer.current) {
         clearTimeout(attemptTimer.current);
         attemptTimer.current = null;
       }
       setLoading(null);
       /*
-       * Nothing reports this. The observer carries ad events only, so a
-       * deferred cycle is invisible from outside — it looks the same as no
-       * demand. Worth knowing because 'inactive' is not just "the user left":
-       * on iOS it covers the ATT prompt, Control Centre, the app switcher and
-       * an incoming call banner, so ordinary interruptions pause the cycle.
-       * A publisher who needs to see it should watch AppState themselves; that
-       * shows the cause, though not whether a cycle was actually due.
+       * No callback reports this, so it looks like no demand. Worth knowing
+       * because 'inactive' covers the iOS ATT prompt, Control Centre and the
+       * app switcher. Watch AppState yourself if you need to see it.
        */
       return;
     }
@@ -207,10 +139,8 @@ export function useFirstLookBanner(observer?: FirstLookBannerObserver) {
     setLoading({ source, key });
   }, []);
 
-  // The first attempt goes through startAttempt too, so it carries the same
-  // timeout as every later one. Seeding `loading` directly into useState would
-  // skip the timeout on attempt zero — which is the mount most likely to race
-  // CloudX.initialize(), the exact case the timeout exists for.
+  // Through startAttempt, so attempt zero is timed like the rest — it is the
+  // one most likely to race CloudX.initialize().
   useEffect(() => {
     startAttempt('cloudx');
   }, [startAttempt]);
@@ -230,8 +160,7 @@ export function useFirstLookBanner(observer?: FirstLookBannerObserver) {
     return () => subscription.remove();
   }, [startAttempt]);
 
-  // Clear both timers on unmount so a backgrounded screen cannot fire a refresh
-  // into a torn-down slot.
+  // No refresh may fire into a torn-down slot.
   useEffect(
     () => () => {
       if (timer.current) {
@@ -244,17 +173,14 @@ export function useFirstLookBanner(observer?: FirstLookBannerObserver) {
     [],
   );
 
-  // The off-screen ad filled: swap it in. Replacing `displayed` unmounts the
-  // previous ad view, which destroys its native ad.
+  // The off-screen ad filled: swap it in. That unmounts the previous ad view
+  // and destroys its native ad.
   const onAdLoaded = useCallback((key: number) => {
     const filled = loadingRef.current;
     /*
-     * Ignore anything that is not the attempt currently loading off-screen.
-     * The displayed ad shares these handlers, and it can emit a load of its
-     * own — an SDK or Ad Manager refresh that was left enabled fires
-     * onAdLoaded on a view that is already on screen. Without this check that
-     * event would promote the hidden attempt before it had filled, blanking
-     * the slot for a whole cycle.
+     * Only the attempt loading off-screen. The displayed ad shares these
+     * handlers and can emit its own load — an auto-refresh left enabled — which
+     * would promote the hidden attempt before it filled and blank the slot.
      */
     if (!filled || filled.key !== key) {
       return;
@@ -268,8 +194,7 @@ export function useFirstLookBanner(observer?: FirstLookBannerObserver) {
     setDisplayed(filled);
     // Nothing else is in flight until the refresh delay elapses.
     setLoading(null);
-    // The ad is on screen as of this render, so start the clock for the next
-    // cycle now. Whoever just served, the next one begins at CloudX.
+    // Whoever just served, the next cycle begins at CloudX.
     if (timer.current) {
       clearTimeout(timer.current);
     }
@@ -280,8 +205,8 @@ export function useFirstLookBanner(observer?: FirstLookBannerObserver) {
   // sources missed, so retry from CloudX with an exponential delay.
   const onAdLoadFailed = useCallback((key: number, message: string) => {
     const failed = loadingRef.current;
-    // Same guard as onAdLoaded: a refresh failure on the displayed ad must not
-    // abort the CloudX attempt that is in flight behind it.
+    // Same guard: a failure from the displayed ad must not abort the attempt
+    // in flight behind it.
     if (!failed || failed.key !== key) {
       return;
     }
@@ -291,22 +216,13 @@ export function useFirstLookBanner(observer?: FirstLookBannerObserver) {
     const wasSilent = timedOut.current;
     timedOut.current = false;
 
-    /*
-     * The CloudX miss is not reported: it is not terminal, it is what starts
-     * the GAM attempt below. Reporting it would describe a cycle that is still
-     * running as a failure.
-     */
+    // The CloudX miss is not reported: it starts the GAM attempt below.
     if (failed.source === 'cloudx') {
       startAttempt('gam');
       return;
     }
 
-    /*
-     * Both sources missed, so the opportunity is over. `wasSilent` picks the
-     * message rather than suppressing the call: an attempt that never called
-     * back is still a miss, and with no separate timeout callback this is the
-     * only place it can be reported.
-     */
+    // Both missed. A silent attempt is still a miss; it only changes the text.
     observerRef.current?.onAdLoadFailed?.(
       'gam',
       wasSilent
@@ -332,10 +248,9 @@ export function useFirstLookBanner(observer?: FirstLookBannerObserver) {
   failAttemptRef.current = onAdLoadFailed;
 
   /*
-   * Matched against `displayed`, not `loading` — the opposite of the two
-   * callbacks above. A click can only come from the ad on screen: the loading
-   * slot is rendered with pointerEvents="none", so it receives no touches.
-   * Guarding this against `loading` would drop every real click, silently.
+   * Matched against `displayed`, not `loading` — the opposite of the callbacks
+   * above. Only the on-screen ad can be tapped; the loading slot is rendered
+   * with pointerEvents="none".
    */
   const onAdClicked = useCallback((key: number) => {
     const shown = displayedRef.current;

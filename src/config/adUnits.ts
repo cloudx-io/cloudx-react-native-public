@@ -1,59 +1,31 @@
 /**
- * Ad unit configuration for the First Look demo.
+ * Ad units and timing for the First Look demo.
  *
- * ---------------------------------------------------------------------------
- * WHAT "FIRST LOOK" MEANS HERE
- * ---------------------------------------------------------------------------
- * CloudX gets the first chance to fill a placement on EVERY ad opportunity.
- * If CloudX does not fill, the app falls back to Google Ad Manager (GAM) for
- * that opportunity only — and the next opportunity starts back at CloudX.
+ * CloudX gets the first chance on EVERY ad opportunity. If it does not fill,
+ * the app falls back to Google Ad Manager for that opportunity only, and the
+ * next one starts back at CloudX. Never load both at once: a parallel load
+ * produces two fills for one opportunity and your GAM show rate collapses.
  *
- * Exactly one SDK owns the placement at any moment. CloudX and GAM are never
- * loaded in parallel: a parallel load produces two fills for one opportunity,
- * the discarded one is wasted, and your GAM show rate collapses.
+ * REQUIRED — set the CloudX banner ad unit's refresh rate to 0 in the
+ * dashboard. This app owns the refresh cycle, and a second SDK timer would swap
+ * an ad in mid-cycle. It cannot be done from the client:
+ * `CloudXBannerAd.stopAutoRefresh()` only knows the programmatic overlay ads
+ * created through that API, not component-rendered banners. `Banner refresh
+ * scheduled in 30s` in the SDK log means the dashboard value did not take.
  *
- * ---------------------------------------------------------------------------
- * WHY THESE SPECIFIC CLOUDX AD UNITS
- * ---------------------------------------------------------------------------
- * These are the placements of the public CloudX sample app, which resolves
- * against the app identifier `io.cloudx.sample` on iOS and Android. Replace
- * them, and the app key, with your own.
+ * Do not point CloudX at a `gw-admob-*` placement — that runs AdMob demand
+ * inside the CloudX auction, which is the opposite of First Look.
  *
- * Do not point this at a `gw-admob-*` placement. Those route AdMob demand
- * *through* CloudX's Google Waterfall adapter, which is the opposite of First
- * Look — here GAM is the publisher's own separate stack and CloudX never sees
- * it.
- *
- * ---------------------------------------------------------------------------
- * REQUIRED DASHBOARD SETUP
- * ---------------------------------------------------------------------------
- * Set the banner ad unit's refresh rate to `0` (auto-refresh disabled) in the
- * CloudX dashboard. This app owns the refresh cycle; if the SDK also runs its
- * own 30s timer, two timers race over one slot and the SDK will swap an ad in
- * while this app's cycle is mid-load.
- *
- * There is no way to satisfy this from the client. `CloudXBannerView` and
- * `CloudXMRECView` follow the dashboard setting, and
- * `CloudXBannerAd.stopAutoRefresh()` resolves the ad unit id against the
- * programmatic overlay ads created through that API — a component-rendered
- * banner is not in that registry, so the call silently does nothing. Setting
- * the dashboard value is the only option.
- *
- * To confirm the setting took effect, watch the SDK log while a banner is on
- * screen. `Banner refresh scheduled in 30s` or `Starting auto-refresh` for your
- * ad unit means refresh is still enabled:
- *
- *   adb logcat | grep -E 'Banner refresh scheduled|auto-refresh'
+ * The ids below belong to the public CloudX sample app (`io.cloudx.sample`).
+ * Replace them, and the app key, with your own.
  */
 
 import { Platform } from 'react-native';
 import { TestIds } from 'react-native-google-mobile-ads';
 
 /*
- * The GAM placements below are Google's AdMob test ids. They serve a test
- * creative through `GAMBannerAd` and `GAMInterstitialAd` without needing an Ad
- * Manager account, so the fallback leg is demonstrable out of the box. Replace
- * them with your own Ad Manager ad units.
+ * Google's AdMob test ids, so the GAM leg works with no Ad Manager account.
+ * Replace with your own units.
  */
 
 export type FirstLookAdUnits = {
@@ -63,10 +35,7 @@ export type FirstLookAdUnits = {
   cloudXBannerAdUnitId: string;
   /** CloudX interstitial placement. */
   cloudXInterstitialAdUnitId: string;
-  /*
-   * The sample app's remaining placements. This demo renders a banner and an
-   * interstitial only, so nothing reads the three below.
-   */
+  /* The sample app's other placements. Nothing in this demo reads them. */
   /** CloudX MREC placement. Dashboard refresh rate must be 0. */
   cloudXMrecAdUnitId: string;
   /** CloudX app-open placement. */
@@ -110,16 +79,9 @@ export const AD_UNITS: FirstLookAdUnits = Platform.select({
 });
 
 /**
- * How long the app waits after an ad is swapped in before starting the next
- * cycle.
- *
- * Align this with the publisher's existing GAM banner cadence. CloudX's own
- * default is 30s and the dashboard offers 30/60/90; this constant is the single
- * place to change it once a cadence is agreed.
- *
- * 30s is also the floor Google allows for banner refresh. The effective
- * interval is this delay plus the next ad's load time, so the cadence stays at
- * or above that floor.
+ * Wait after an ad is swapped in before starting the next cycle. Match it to
+ * your existing GAM banner cadence. 30s is Google's floor for banner refresh,
+ * and the effective interval is this plus the next ad's load time.
  */
 export const REFRESH_DELAY_MS = 30_000;
 
@@ -127,28 +89,18 @@ export const REFRESH_DELAY_MS = 30_000;
 export const MAX_BACKOFF_SECONDS = 64;
 
 /**
- * How long a single load attempt may stay silent before it counts as failed.
- *
- * This matters more than it looks: an ad view mounted before
- * `CloudX.initialize()` completes waits silently rather than emitting a
- * failure. Without this timeout the slot would hang forever on a source that
- * never calls back, and the cycle would never restart.
+ * How long one attempt may stay silent before it counts as failed. An ad view
+ * mounted before `CloudX.initialize()` completes waits silently instead of
+ * failing, and the cycle would never restart.
  */
 export const ATTEMPT_TIMEOUT_MS = 15_000;
 
 /**
- * How long the SDK needs after an interstitial closes before it will accept a
- * load for that placement again.
- *
- * The hidden event fires before the SDK releases the placement, so a load
- * issued straight from `onClosed` is rejected with "Cannot load while another
- * ad is currently being displayed" — and because that rejection is
- * indistinguishable from a no-fill, the GAM fallback would take an opportunity
- * CloudX was never really asked for.
- *
- * This value is measured, not derived: on an Android emulator an immediate
- * reload failed every time and a 500ms deferral succeeded every time. Treat it
- * as a floor rather than a guarantee — the real fix is an SDK signal for when
- * the placement is free again.
+ * How long the SDK needs after an interstitial closes before it accepts a load
+ * for that placement again. The hidden event fires first, so a load straight
+ * from `onClosed` is rejected with "Cannot load while another ad is currently
+ * being displayed" — which looks exactly like a no-fill, handing GAM an
+ * opportunity CloudX never got. Measured on an Android emulator; treat it as a
+ * floor.
  */
 export const CLOSE_SETTLE_MS = 500;

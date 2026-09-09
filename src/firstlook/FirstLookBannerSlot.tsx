@@ -1,22 +1,16 @@
 /**
- * First Look banner slot.
+ * Renders both halves of the cycle driven by `useFirstLookBanner`: the ad on
+ * screen, and the next one loading invisibly behind it. Mounting an ad view is
+ * what starts its load, so the hidden slot is how "preload off-screen" is
+ * expressed.
  *
- * Renders both halves of the cycle driven by `useFirstLookBanner`:
- *   - the DISPLAYED ad, normally visible
- *   - the LOADING ad, mounted but invisible
- *
- * Mounting is what triggers the load for both `CloudXBannerView` and GAM's
- * `GAMBannerAd`, so the hidden slot is how "load off-screen" is expressed.
- * Nothing is shown from the hidden slot until it fills, and promotion happens
- * immediately on fill — so the ad is on screen as soon as the cycle counts it.
- *
- * Drop `<FirstLookBannerSlot />` wherever the banner belongs in your layout.
- * When the screen unmounts, both slots unmount with it, which destroys the
- * native ads and clears the hook's timers.
+ * Drop `<FirstLookBannerSlot />` where the banner belongs. When the screen
+ * unmounts, both slots go with it, destroying the native ads and clearing the
+ * hook's timers.
  *
  * For MREC, swap `CloudXBannerView` for `CloudXMRECView`, GAM's
- * `sizes={[BannerAdSize.BANNER]}` for `sizes={[BannerAdSize.MEDIUM_RECTANGLE]}`,
- * and the slot size for 300x250.
+ * `sizes={[BannerAdSize.BANNER]}` for `[BannerAdSize.MEDIUM_RECTANGLE]`, and
+ * the slot size for 300x250.
  */
 
 import React from 'react';
@@ -51,9 +45,8 @@ function SlotAd({
     <View
       style={hidden ? styles.hidden : undefined}
       pointerEvents={hidden ? 'none' : 'auto'}
-      // opacity:0 hides the preloading ad visually but leaves it in the
-      // accessibility tree, where a screen reader would still announce it.
-      // These two props remove it for assistive technology as well.
+      // opacity:0 still leaves the preloading ad in the accessibility tree,
+      // where a screen reader would announce it. These take it out.
       accessibilityElementsHidden={hidden}
       importantForAccessibility={hidden ? 'no-hide-descendants' : 'auto'}
     >
@@ -75,11 +68,8 @@ function SlotAd({
             onLoadFailed(attempt.key, error?.message ?? 'GAM no-fill')
           }
           /*
-           * No click wiring, deliberately. react-native-google-mobile-ads
-           * exposes no banner click event on either platform: its iOS view
-           * never implements GADBannerViewDelegate's bannerViewDidRecordClick,
-           * and its Android manager never maps AdListener.onAdClicked.
-           *
+           * No click wiring: react-native-google-mobile-ads exposes no banner
+           * click event on either platform.
            * https://github.com/invertase/react-native-google-mobile-ads
            */
         />
@@ -131,9 +121,9 @@ export function FirstLookBannerSlot({
 
 const styles = StyleSheet.create({
   /*
-   * Phone banner size. On a tablet CloudXBannerView self-sizes to 728x90 while
-   * the GAM leg stays 320x50, so a tablet layout needs this slot widened and
-   * the GAM `sizes` changed to match — otherwise the CloudX ad is clipped.
+   * Phone size. On a tablet CloudXBannerView self-sizes to 728x90 while GAM
+   * stays 320x50, so widen this and change GAM's `sizes` to match or the CloudX
+   * ad is clipped.
    */
   slot: { width: 320, height: 50, alignSelf: 'center' },
   hidden: { position: 'absolute', opacity: 0 },

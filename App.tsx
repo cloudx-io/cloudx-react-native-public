@@ -4,14 +4,14 @@
  * Reference implementation of https://docs.cloudx.io/en/react-native/integrations/first-look
  *
  * One banner and one interstitial, each giving CloudX the first chance to fill
- * and falling back to Google Ad Manager when CloudX does not. The interesting
- * code is in `src/firstlook/`; this screen is only a host for it.
+ * and falling back to Google Ad Manager when it does not. The pattern lives in
+ * `src/firstlook/`; this screen only hosts it.
  *
  * Read in this order:
- *   1. src/config/adUnits.ts            — placements + the required dashboard setup
- *   2. src/firstlook/useFirstLookBanner.ts   — the refresh cycle
- *   3. src/firstlook/FirstLookBannerSlot.tsx — how the cycle is rendered
- *   4. src/firstlook/useFirstLookInterstitial.ts — the simpler fullscreen case
+ *   1. src/config/adUnits.ts                     — placements + dashboard setup
+ *   2. src/firstlook/useFirstLookBanner.ts       — the refresh cycle
+ *   3. src/firstlook/FirstLookBannerSlot.tsx     — how it is rendered
+ *   4. src/firstlook/useFirstLookInterstitial.ts — the fullscreen case
  */
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
@@ -35,9 +35,8 @@ export default function App() {
   const [ready, setReady] = useState(false);
   const [status, setStatus] = useState('initializing…');
 
-  // Both SDKs must be initialized before any ad view mounts. A CloudX ad view
-  // mounted before initialize() completes waits silently rather than reporting
-  // a failure, which would stall the First Look cycle until its attempt timeout.
+  // Both SDKs must be initialized before any ad view mounts: one mounted
+  // earlier waits silently instead of reporting a failure.
   useEffect(() => {
     let cancelled = false;
     (async () => {
@@ -74,9 +73,8 @@ export default function App() {
 
         <Section title="Banner">
           {/*
-            The slot owns its own refresh cycle. Mount it and leave it alone —
-            no load call, no timer, no refresh handling in the host screen.
-            The observer is optional and reports only; the cycle runs without it.
+            The slot owns its refresh cycle. Mount it and leave it alone: no
+            load call, no timer, no refresh handling here.
           */}
           {ready ? <BannerDemo /> : null}
         </Section>
@@ -88,11 +86,7 @@ export default function App() {
 function BannerDemo() {
   const [status, setStatus] = useState('idle');
 
-  /*
-   * Same line-plus-log split as the interstitial: the line shows the current
-   * state, the log keeps the sequence. A banner cycles on its own, so the line
-   * alone would only ever show the most recent fill.
-   */
+  // The line shows the current state, the log keeps the sequence.
   const report = useCallback((text: string) => {
     setStatus(text);
     console.log(`[FirstLook] banner: ${text}`);
@@ -102,11 +96,7 @@ function BannerDemo() {
     () => ({
       onAdLoaded: (source: FirstLookSource) => report(`Loaded (${source})`),
       onAdClicked: (source: FirstLookSource) => report(`Clicked (${source})`),
-      /*
-       * Both sources missed. Not raised for the CloudX miss on its own — that
-       * one starts the GAM attempt rather than ending the cycle. The hook
-       * handles its own backoff, so there is nothing to do here but report.
-       */
+      // Both missed. The hook backs off on its own, so this only reports.
       onAdLoadFailed: (source: FirstLookSource, error: string) =>
         report(`Load failed (${source}): ${error}`),
     }),
@@ -123,27 +113,24 @@ function BannerDemo() {
 
 function InterstitialDemo() {
   /*
-   * A failed opportunity is retried with a widening delay, never immediately.
-   * Both sources missing tends to mean no demand right now, and reloading on
-   * every failure would turn that into a request loop against both networks.
-   * A close is different — an ad was shown — so that reloads straight away.
+   * A failed opportunity is retried with a widening delay: both sources missing
+   * means no demand right now, and reloading on every failure would be a
+   * request loop. A close is different — an ad was shown — so it reloads at
+   * once.
    */
   const retryAttempt = useRef(0);
   const retryTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const loadRef = useRef<() => void>(() => {});
 
   /*
-   * Every observer callback is rendered here, which is what makes the source
-   * visible: if this only ever reads `(gam)`, CloudX is not filling and the app
-   * key, the ad unit ids or the dashboard config is wrong — not this hook.
+   * Every callback is rendered, which is what makes the source visible: if this
+   * only ever reads `(gam)`, CloudX is not filling and the app key, the ad unit
+   * ids or the dashboard config is wrong — not this hook.
    */
   const [adStatus, setAdStatus] = useState('idle');
 
-  /*
-   * Status line and log, together. The line shows the current state; the log
-   * keeps the sequence, which the line cannot — a close is followed instantly
-   * by the reload's fill, so "Closed" would never be readable on screen.
-   */
+  // The line shows the current state, the log keeps the sequence: a close is
+  // followed instantly by the reload's fill.
   const report = useCallback((text: string) => {
     setAdStatus(text);
     console.log(`[FirstLook] interstitial: ${text}`);
@@ -171,30 +158,19 @@ function InterstitialDemo() {
       onAdLoaded: source => report(`Loaded (${source})`),
       onAdShown: source => report(`Showing (${source})`),
       onAdClicked: source => report(`Clicked (${source})`),
-      /*
-       * Prepare the next opportunity once the current one is over. Showing
-       * consumes the ad, so without this the slot is dead after the first
-       * impression — isReady never returns true again.
-       */
+      // Showing consumes the ad, so without this reload the slot is dead after
+      // the first impression.
       onAdClosed: source => {
         report(`Closed (${source})`);
         load();
       },
-      /*
-       * Both sources missed, or the GAM request went silent. Neither produces a
-       * close, so without this the slot would stay empty.
-       */
+      // No close follows a miss, so nothing else would refill the slot.
       onAdLoadFailed: (source, error) => {
         report(`Load failed (${source}): ${error}`);
         scheduleRetry();
       },
-      /*
-       * A presentation that failed ends the opportunity with no ad shown and no
-       * close to follow, so it needs the same backed-off retry. On the GAM
-       * show-promise rejection the fill is actually still held, so this retry
-       * early-returns in load() and the next tap shows the held ad — see the
-       * note on that rejection in the hook.
-       */
+      // Same: no ad shown, no close to follow. On a GAM show rejection the fill
+      // is still held, so this retry no-ops and the next tap shows it.
       onAdShowFailed: (source, error) => {
         report(`Show failed (${source}): ${error}`);
         scheduleRetry();
@@ -202,8 +178,8 @@ function InterstitialDemo() {
     },
   );
 
-  // Assigned in an effect, not during render: a render that is discarded
-  // (StrictMode, or a concurrent render that never commits) must not write it.
+  // In an effect, not during render: a render that never commits must not
+  // write it.
   useEffect(() => {
     loadRef.current = load;
   }, [load]);
@@ -235,14 +211,12 @@ function InterstitialDemo() {
       <Text style={styles.status}>{adStatus}</Text>
       <Button
         title={isReady ? 'Show interstitial' : 'Loading…'}
-        // Deliberately NOT disabled while loading. show() already reports
-        // whether anything was ready, so a tap during a load is a harmless
-        // no-op that also re-arms the load — whereas disabling the button
-        // turns any missed reload into a dead end with no way out.
+        // Deliberately not disabled while loading: a tap is a harmless no-op
+        // that re-arms the load, while disabling it makes a missed reload a
+        // dead end.
         onPress={() => {
-          // show() reports whether an already-loaded ad was shown. If it
-          // returns false, neither source was ready — continue the app flow
-          // without an ad rather than blocking on one.
+          // False means neither source was ready: continue the app flow
+          // without an ad rather than block on one.
           if (!show()) {
             load();
           }
