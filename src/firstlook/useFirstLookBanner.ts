@@ -91,23 +91,44 @@ export type FirstLookAttempt = {
 };
 
 /**
- * Optional instrumentation.
+ * Optional instrumentation, named and shaped like the public Unity demo's
+ * FirstLookBannerCycle so the two integrations read alike. Every callback
+ * carries the source that served the ad.
  *
  * Not part of the documented pattern. Pass an observer to log or assert that
- * the fallback, the backoff, and the return-to-CloudX actually happen; most
- * callers pass nothing. Kept out of the cycle logic below so the hook stays
- * copy-pasteable as written.
+ * the fallback and the return-to-CloudX actually happen; most callers pass
+ * nothing. Kept out of the cycle logic below so the hook stays copy-pasteable
+ * as written.
+ *
+ * Three of the Unity cycle's six. The other three describe a lifecycle this
+ * banner does not have:
+ *
+ *   AdShown       Unity banks a fill and shows it later, so load and display
+ *                 are separate moments. Here a fill is promoted the instant it
+ *                 arrives, so it would always fire alongside onAdLoaded.
+ *   AdHidden      Unity's banner is toggled through Show()/Hide(). This one is
+ *                 hidden by not rendering it, which React already reports.
+ *   ShowPending   Same reason.
+ *
+ * Unity's PassSpent has no counterpart either, but for a different reason: it
+ * never reaches a Unity publisher, being a seam between its controller and its
+ * cycle. This hook is both, so there is nothing to cross.
  */
 export type FirstLookBannerObserver = {
-  onAttemptStart?: (source: FirstLookSource, key: number) => void;
-  onFill?: (source: FirstLookSource) => void;
-  onNoFill?: (source: FirstLookSource) => void;
-  /** Both sources missed; retrying CloudX after `delaySeconds`. */
-  onBackoff?: (attempt: number, delaySeconds: number) => void;
-  /** An attempt went silent past ATTEMPT_TIMEOUT_MS and was treated as failed. */
-  onAttemptTimeout?: (source: FirstLookSource) => void;
-  /** A cycle came due while the app was backgrounded and is waiting to resume. */
-  onCycleDeferred?: () => void;
+  /** A source filled and the ad went on screen — one moment, see above. */
+  onAdLoaded?: (source: FirstLookSource) => void;
+  /**
+   * The opportunity is over with no ad: both sources missed.
+   *
+   * Deliberately NOT emitted for the CloudX miss on its own. That miss is not
+   * terminal — it is what starts the GAM attempt — so reporting it here would
+   * describe a cycle that is still running as a failure. Only `'gam'` is
+   * emitted today, for the same reason the Unity controller only raises
+   * AdLoadFailed once the fallback has failed too.
+   */
+  onAdLoadFailed?: (source: FirstLookSource, error: string) => void;
+  /** The user tapped the ad. Reporting only; the cycle is unaffected. */
+  onAdClicked?: (source: FirstLookSource) => void;
 };
 
 export function useFirstLookBanner(observer?: FirstLookBannerObserver) {
@@ -117,6 +138,10 @@ export function useFirstLookBanner(observer?: FirstLookBannerObserver) {
   const [loading, setLoading] = useState<FirstLookAttempt | null>(null);
   const loadingRef = useRef(loading);
   loadingRef.current = loading;
+  // The click handler needs the on-screen attempt without taking a dependency
+  // on it, for the same reason loadingRef exists for the load callbacks.
+  const displayedRef = useRef(displayed);
+  displayedRef.current = displayed;
 
   // Held in a ref so the callbacks never need it in their dep arrays — an
   // observer identity change must not tear down a running cycle.
@@ -128,7 +153,9 @@ export function useFirstLookBanner(observer?: FirstLookBannerObserver) {
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const attemptTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   // Lets startAttempt arm the timeout before onAdLoadFailed is defined.
-  const failAttemptRef = useRef<(key: number) => void>(() => {});
+  const failAttemptRef = useRef<(key: number, message: string) => void>(
+    () => {},
+  );
   // Distinguishes "this attempt failed" from "this attempt never called back",
   // which an observer needs to tell a real no-fill from a silent source.
   const timedOut = useRef(false);
@@ -158,7 +185,15 @@ export function useFirstLookBanner(observer?: FirstLookBannerObserver) {
         attemptTimer.current = null;
       }
       setLoading(null);
-      observerRef.current?.onCycleDeferred?.();
+      /*
+       * Nothing reports this. The observer carries ad events only, so a
+       * deferred cycle is invisible from outside — it looks the same as no
+       * demand. Worth knowing because 'inactive' is not just "the user left":
+       * on iOS it covers the ATT prompt, Control Centre, the app switcher and
+       * an incoming call banner, so ordinary interruptions pause the cycle.
+       * A publisher who needs to see it should watch AppState themselves; that
+       * shows the cause, though not whether a cycle was actually due.
+       */
       return;
     }
     if (attemptTimer.current) {
@@ -167,10 +202,8 @@ export function useFirstLookBanner(observer?: FirstLookBannerObserver) {
     const key = nextKey.current++;
     attemptTimer.current = setTimeout(() => {
       timedOut.current = true;
-      observerRef.current?.onAttemptTimeout?.(source);
-      failAttemptRef.current(key);
+      failAttemptRef.current(key, 'no answer');
     }, ATTEMPT_TIMEOUT_MS);
-    observerRef.current?.onAttemptStart?.(source, key);
     setLoading({ source, key });
   }, []);
 
@@ -231,7 +264,7 @@ export function useFirstLookBanner(observer?: FirstLookBannerObserver) {
     }
     timedOut.current = false;
     consecutiveNoFills.current = 0;
-    observerRef.current?.onFill?.(filled.source);
+    observerRef.current?.onAdLoaded?.(filled.source);
     setDisplayed(filled);
     // Nothing else is in flight until the refresh delay elapses.
     setLoading(null);
@@ -245,7 +278,7 @@ export function useFirstLookBanner(observer?: FirstLookBannerObserver) {
 
   // CloudX no-fill falls back to GAM for this cycle. A GAM no-fill means both
   // sources missed, so retry from CloudX with an exponential delay.
-  const onAdLoadFailed = useCallback((key: number) => {
+  const onAdLoadFailed = useCallback((key: number, message: string) => {
     const failed = loadingRef.current;
     // Same guard as onAdLoaded: a refresh failure on the displayed ad must not
     // abort the CloudX attempt that is in flight behind it.
@@ -255,22 +288,38 @@ export function useFirstLookBanner(observer?: FirstLookBannerObserver) {
     if (attemptTimer.current) {
       clearTimeout(attemptTimer.current);
     }
-    if (!timedOut.current) {
-      observerRef.current?.onNoFill?.(failed.source);
-    }
+    const wasSilent = timedOut.current;
     timedOut.current = false;
 
+    /*
+     * The CloudX miss is not reported: it is not terminal, it is what starts
+     * the GAM attempt below. Reporting it would describe a cycle that is still
+     * running as a failure — and it is the reload trigger on the interstitial,
+     * so the two must agree.
+     */
     if (failed.source === 'cloudx') {
       startAttempt('gam');
       return;
     }
+
+    /*
+     * Both sources missed, so the opportunity is over. `wasSilent` picks the
+     * message rather than suppressing the call: an attempt that never called
+     * back is still a miss, and with no separate timeout callback this is the
+     * only place it can be reported.
+     */
+    observerRef.current?.onAdLoadFailed?.(
+      'gam',
+      wasSilent
+        ? `GAM did not answer within ${ATTEMPT_TIMEOUT_MS}ms`
+        : message,
+    );
 
     const delaySeconds = Math.min(
       2 ** consecutiveNoFills.current,
       MAX_BACKOFF_SECONDS,
     );
     consecutiveNoFills.current += 1;
-    observerRef.current?.onBackoff?.(consecutiveNoFills.current, delaySeconds);
     setLoading(null);
     if (timer.current) {
       clearTimeout(timer.current);
@@ -283,5 +332,19 @@ export function useFirstLookBanner(observer?: FirstLookBannerObserver) {
 
   failAttemptRef.current = onAdLoadFailed;
 
-  return { displayed, loading, onAdLoaded, onAdLoadFailed };
+  /*
+   * Matched against `displayed`, not `loading` — the opposite of the two
+   * callbacks above. A click can only come from the ad on screen: the loading
+   * slot is rendered with pointerEvents="none", so it receives no touches.
+   * Guarding this against `loading` would drop every real click, silently.
+   */
+  const onAdClicked = useCallback((key: number) => {
+    const shown = displayedRef.current;
+    if (!shown || shown.key !== key) {
+      return;
+    }
+    observerRef.current?.onAdClicked?.(shown.source);
+  }, []);
+
+  return { displayed, loading, onAdLoaded, onAdLoadFailed, onAdClicked };
 }

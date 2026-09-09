@@ -14,7 +14,7 @@
  *   4. src/firstlook/useFirstLookInterstitial.ts — the simpler fullscreen case
  */
 
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Button,
   SafeAreaView,
@@ -27,6 +27,7 @@ import {
 import CloudX from 'cloudx-react-native';
 import mobileAds from 'react-native-google-mobile-ads';
 import { FirstLookBannerSlot } from './src/firstlook/FirstLookBannerSlot';
+import type { FirstLookSource } from './src/firstlook/FirstLookSource';
 import { useFirstLookInterstitial } from './src/firstlook/useFirstLookInterstitial';
 import { AD_UNITS, MAX_BACKOFF_SECONDS } from './src/config/adUnits';
 
@@ -75,11 +76,48 @@ export default function App() {
           {/*
             The slot owns its own refresh cycle. Mount it and leave it alone —
             no load call, no timer, no refresh handling in the host screen.
+            The observer is optional and reports only; the cycle runs without it.
           */}
-          {ready ? <FirstLookBannerSlot /> : null}
+          {ready ? <BannerDemo /> : null}
         </Section>
       </ScrollView>
     </SafeAreaView>
+  );
+}
+
+function BannerDemo() {
+  const [status, setStatus] = useState('idle');
+
+  /*
+   * Same line-plus-log split as the interstitial: the line shows the current
+   * state, the log keeps the sequence. A banner cycles on its own, so the line
+   * alone would only ever show the most recent fill.
+   */
+  const report = useCallback((text: string) => {
+    setStatus(text);
+    console.log(`[FirstLook] banner: ${text}`);
+  }, []);
+
+  const observer = useMemo(
+    () => ({
+      onAdLoaded: (source: FirstLookSource) => report(`Loaded (${source})`),
+      onAdClicked: (source: FirstLookSource) => report(`Clicked (${source})`),
+      /*
+       * Both sources missed. Not raised for the CloudX miss on its own — that
+       * one starts the GAM attempt rather than ending the cycle. The hook
+       * handles its own backoff, so there is nothing to do here but report.
+       */
+      onAdLoadFailed: (source: FirstLookSource, error: string) =>
+        report(`Load failed (${source}): ${error}`),
+    }),
+    [report],
+  );
+
+  return (
+    <View>
+      <Text style={styles.status}>{status}</Text>
+      <FirstLookBannerSlot observer={observer} />
+    </View>
   );
 }
 

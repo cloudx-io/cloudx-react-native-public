@@ -35,7 +35,8 @@ type SlotAdProps = {
   hidden: boolean;
   cloudXAdUnitId: string;
   onLoaded: (key: number) => void;
-  onLoadFailed: (key: number) => void;
+  onLoadFailed: (key: number, message: string) => void;
+  onClicked: (key: number) => void;
 };
 
 function SlotAd({
@@ -44,6 +45,7 @@ function SlotAd({
   cloudXAdUnitId,
   onLoaded,
   onLoadFailed,
+  onClicked,
 }: SlotAdProps) {
   return (
     <View
@@ -59,14 +61,25 @@ function SlotAd({
         <CloudXBannerView
           adUnitId={cloudXAdUnitId}
           onAdLoaded={() => onLoaded(attempt.key)}
-          onAdLoadFailed={() => onLoadFailed(attempt.key)}
+          onAdLoadFailed={errorInfo =>
+            onLoadFailed(attempt.key, errorInfo?.message ?? 'CloudX no-fill')
+          }
+          onAdClicked={() => onClicked(attempt.key)}
         />
       ) : (
         <GAMBannerAd
           unitId={AD_UNITS.gamBannerAdUnitId}
           sizes={[BannerAdSize.BANNER]}
           onAdLoaded={() => onLoaded(attempt.key)}
-          onAdFailedToLoad={() => onLoadFailed(attempt.key)}
+          onAdFailedToLoad={error =>
+            onLoadFailed(attempt.key, error?.message ?? 'GAM no-fill')
+          }
+          /*
+           * The plugin has no onAdClicked for banners. onAdOpened is the
+           * click: it fires when the ad opens its overlay, which on a banner
+           * only happens on a tap.
+           */
+          onAdOpened={() => onClicked(attempt.key)}
         />
       )}
     </View>
@@ -81,7 +94,7 @@ export type FirstLookBannerSlotProps = {
 export function FirstLookBannerSlot({
   observer,
 }: FirstLookBannerSlotProps = {}) {
-  const { displayed, loading, onAdLoaded, onAdLoadFailed } =
+  const { displayed, loading, onAdLoaded, onAdLoadFailed, onAdClicked } =
     useFirstLookBanner(observer);
 
   const cloudXAdUnitId = AD_UNITS.cloudXBannerAdUnitId;
@@ -96,6 +109,7 @@ export function FirstLookBannerSlot({
           cloudXAdUnitId={cloudXAdUnitId}
           onLoaded={onAdLoaded}
           onLoadFailed={onAdLoadFailed}
+          onClicked={onAdClicked}
         />
       )}
       {loading && (
@@ -106,6 +120,7 @@ export function FirstLookBannerSlot({
           cloudXAdUnitId={cloudXAdUnitId}
           onLoaded={onAdLoaded}
           onLoadFailed={onAdLoadFailed}
+          onClicked={onAdClicked}
         />
       )}
     </View>

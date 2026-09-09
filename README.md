@@ -169,9 +169,18 @@ provisioned on the app key. That produces a deterministic no-fill, and the seque
 cloudx no-fill -> gam attempt -> gam fill -> (REFRESH_DELAY_MS) -> cloudx attempt
 ```
 
-`useFirstLookBanner` takes an optional `observer` with `onAttemptStart`, `onFill`, `onNoFill`,
-`onBackoff`, `onAttemptTimeout` and `onCycleDeferred` callbacks — pass one and log from it to watch
-the cycle.
+`useFirstLookBanner` takes an optional `observer` with the same three callbacks as the interstitial,
+each carrying the source: `onAdLoaded`, `onAdLoadFailed` and `onAdClicked`. `App.tsx` wires them and
+renders them, so the status line above the banner names whichever SDK served the ad on screen.
+
+The same terminal-only rule applies: `onAdLoadFailed` fires when **both** sources have missed, never
+for the CloudX miss on its own — that miss is what starts the GAM attempt.
+
+Unity's banner has three events this one does not (`AdShown`, `AdHidden`, `ShowPending`), because a
+Unity banner is toggled through `Show()`/`Hide()` while this one is hidden by not rendering it. One
+consequence is worth knowing: the cycle pauses while the app is backgrounded — on iOS that includes
+the ATT prompt, Control Centre and the app switcher — and nothing reports it. Watch `AppState`
+yourself if you need to see it.
 
 `useFirstLookInterstitial` takes an observer too, named and shaped like the
 [public Unity demo's](https://github.com/cloudx-io/cloudx-unity) `FirstLookInterstitialController` so
