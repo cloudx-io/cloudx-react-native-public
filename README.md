@@ -23,12 +23,17 @@ Exactly one SDK owns the placement at any moment.
 
 One banner and one interstitial — the point is the pattern, not coverage.
 
+Copy [`src/firstlook/`](src/firstlook) — the five files below are the whole
+flow. Everything outside it is this demo's own scaffolding.
+
 | File | What it is |
 |---|---|
-| [`src/config/adUnits.ts`](src/config/adUnits.ts) | Placements, timing constants, and the required dashboard setup |
 | [`src/firstlook/useFirstLookBanner.ts`](src/firstlook/useFirstLookBanner.ts) | The banner refresh cycle — the interesting one |
 | [`src/firstlook/FirstLookBannerSlot.tsx`](src/firstlook/FirstLookBannerSlot.tsx) | How that cycle is rendered (visible slot + hidden preload slot) |
 | [`src/firstlook/useFirstLookInterstitial.ts`](src/firstlook/useFirstLookInterstitial.ts) | The simpler fullscreen case |
+| [`src/firstlook/firstLookTiming.ts`](src/firstlook/firstLookTiming.ts) | The four numbers worth tuning |
+| [`src/firstlook/FirstLookSource.ts`](src/firstlook/FirstLookSource.ts) | The `'cloudx'` / `'gam'` union every callback reports |
+| [`src/config/adUnits.ts`](src/config/adUnits.ts) | This demo's placements and the required dashboard setup — replace with your own |
 | [`App.tsx`](App.tsx) | Minimal host screen |
 
 A real integration renders `<FirstLookBannerSlot />` and calls
@@ -172,6 +177,6 @@ GAM is still loading.
 
 Two silences to know about. A GAM banner click is never reported:
 [`react-native-google-mobile-ads`](https://github.com/invertase/react-native-google-mobile-ads)
-exposes no banner click event on either platform (the interstitial is unaffected). And the banner
+exposes no banner click event on iOS or Android (the interstitial is unaffected). And the banner
 cycle pauses while the app is backgrounded — on iOS that includes the ATT prompt, Control Centre and
 the app switcher — with no callback for it; watch `AppState` yourself if you need to see it.

@@ -29,7 +29,8 @@ import mobileAds from 'react-native-google-mobile-ads';
 import { FirstLookBannerSlot } from './src/firstlook/FirstLookBannerSlot';
 import type { FirstLookSource } from './src/firstlook/FirstLookSource';
 import { useFirstLookInterstitial } from './src/firstlook/useFirstLookInterstitial';
-import { AD_UNITS, MAX_BACKOFF_SECONDS } from './src/config/adUnits';
+import { AD_UNITS } from './src/config/adUnits';
+import { MAX_BACKOFF_SECONDS } from './src/firstlook/firstLookTiming';
 
 export default function App() {
   const [ready, setReady] = useState(false);

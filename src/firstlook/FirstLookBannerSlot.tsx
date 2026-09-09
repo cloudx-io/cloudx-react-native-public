@@ -8,6 +8,10 @@
  * unmounts, both slots go with it, destroying the native ads and clearing the
  * hook's timers.
  *
+ * This is the component banner, `CloudXBannerView`, not the programmatic
+ * `CloudXBannerAd` — a native overlay above the whole tree. The cycle needs
+ * the component form: mount starts the load, unmount destroys the ad.
+ *
  * For MREC, swap `CloudXBannerView` for `CloudXMRECView`, GAM's
  * `sizes={[BannerAdSize.BANNER]}` for `[BannerAdSize.MEDIUM_RECTANGLE]`, and
  * the slot size for 300x250.
@@ -69,7 +73,7 @@ function SlotAd({
           }
           /*
            * No click wiring: react-native-google-mobile-ads exposes no banner
-           * click event on either platform.
+           * click event on iOS or Android.
            * https://github.com/invertase/react-native-google-mobile-ads
            */
         />

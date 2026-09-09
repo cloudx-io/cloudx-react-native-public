@@ -40,7 +40,7 @@ import {
   ATTEMPT_TIMEOUT_MS,
   MAX_BACKOFF_SECONDS,
   REFRESH_DELAY_MS,
-} from '../config/adUnits';
+} from './firstLookTiming';
 import type { FirstLookSource } from './FirstLookSource';
 
 /* Re-exported so a caller importing this hook does not need a second import. */
@@ -69,7 +69,7 @@ export type FirstLookBannerObserver = {
    * The user tapped the ad. Reporting only.
    *
    * CloudX banners only: react-native-google-mobile-ads wires no banner click
-   * event on either platform, so a GAM banner click cannot be reported. The
+   * event on iOS or Android, so a GAM banner click cannot be reported. The
    * interstitial is unaffected and reports both sources.
    * https://github.com/invertase/react-native-google-mobile-ads
    */

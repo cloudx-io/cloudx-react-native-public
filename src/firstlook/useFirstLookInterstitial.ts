@@ -32,7 +32,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { AdEventType, GAMInterstitialAd } from 'react-native-google-mobile-ads';
 import { CloudXInterstitialAd, useCloudXInterstitial } from 'cloudx-react-native';
-import { ATTEMPT_TIMEOUT_MS, CLOSE_SETTLE_MS } from '../config/adUnits';
+import { ATTEMPT_TIMEOUT_MS, CLOSE_SETTLE_MS } from './firstLookTiming';
 import type { FirstLookSource } from './FirstLookSource';
 
 /**
