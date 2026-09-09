@@ -58,6 +58,9 @@ yarn-error.log
 
 # Ruby / CocoaPods
 **/Pods/
+# Not committed on purpose: ios/Podfile.lock is this demo's lock, and the
+# Gemfile carries constraints instead. See the Running section of README.md.
+Gemfile.lock
 /vendor/bundle/
 
 # Temporary files created by Metro to check the health of the file watcher
