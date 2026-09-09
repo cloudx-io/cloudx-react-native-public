@@ -137,22 +137,25 @@ export function useFirstLookInterstitial(
   observerRef.current = observer;
 
   /*
-   * Mirrors the React state for callbacks that run outside render.
+   * Mirrors the CloudX React state for callbacks that run outside render.
    *
    * Assigned on every render, so between a native event and the re-render it
    * triggers, these fields are one tick stale. Every handler that both changes
    * a flag and calls back into the app therefore writes the field here first —
-   * see the close handlers below. Without that, a `load()` made from `onClosed`
-   * reads the pre-close values and skips the load entirely.
+   * see the close handlers below. Without that, a `load()` made from
+   * `onAdClosed` reads the pre-close values and skips the load entirely.
+   *
+   * Only the CloudX flags are here. GAM readiness is not mirrored because the
+   * plugin already exposes it synchronously as `gamInterstitial.loaded`, which
+   * the guards read directly; CloudX has no equivalent, which is what this
+   * mirror stands in for.
    */
   const state = useRef({
-    isGamLoaded,
     isCloudXLoaded,
     isCloudXLoading,
   });
 
   state.current = {
-    isGamLoaded,
     isCloudXLoaded,
     isCloudXLoading,
   };
@@ -339,7 +342,6 @@ export function useFirstLookInterstitial(
       }
       if (type === AdEventType.LOADED) {
         clearGamLoadTimer();
-        state.current.isGamLoaded = true;
         setIsGamLoaded(true);
         observerRef.current?.onAdLoaded?.('gam');
       }
@@ -356,7 +358,6 @@ export function useFirstLookInterstitial(
          */
         const wasPresenting = presentingRef.current;
         clearGamLoadTimer();
-        state.current.isGamLoaded = false;
         setIsGamLoaded(false);
         gamLoadRequested.current = false;
         presentingRef.current = false;
@@ -387,7 +388,6 @@ export function useFirstLookInterstitial(
        * early-return against a fresh object that has nothing loaded.
        */
       gamLoadRequested.current = false;
-      state.current.isGamLoaded = false;
       setIsGamLoaded(false);
     };
   }, [clearGamLoadTimer, gamInterstitial]);
@@ -452,7 +452,7 @@ export function useFirstLookInterstitial(
     const errorKey = String(cloudXError);
     if (
       handledErrorRef.current === errorKey ||
-      state.current.isGamLoaded ||
+      gamInterstitial.loaded ||
       gamLoadRequested.current
     ) {
       return;
@@ -516,11 +516,19 @@ export function useFirstLookInterstitial(
   const load = useCallback(() => {
     const current = state.current;
 
+    /*
+     * `gamInterstitial.loaded` rather than the mirrored flag, for the same
+     * reason show() reads it: the getter is the plugin's own state and the
+     * mirror is a copy of it. They agree within a tick — MobileAd sets _loaded
+     * before notifying listeners, and the handlers below write state.current
+     * before their setState — so this is consistency, not a fix. The mirror
+     * stays for isCloudXLoaded, which has no synchronous read at all.
+     */
     if (
       cloudXLoadRequested.current ||
       current.isCloudXLoading ||
       current.isCloudXLoaded ||
-      current.isGamLoaded ||
+      gamInterstitial.loaded ||
       gamLoadRequested.current
     ) {
       return;
@@ -528,7 +536,7 @@ export function useFirstLookInterstitial(
 
     cloudXLoadRequested.current = true;
     loadCloudX();
-  }, [loadCloudX]);
+  }, [gamInterstitial, loadCloudX]);
 
   const show = useCallback((): boolean => {
     const current = state.current;
