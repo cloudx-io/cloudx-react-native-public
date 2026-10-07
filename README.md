@@ -34,7 +34,7 @@ flow. Everything outside it is this demo's own scaffolding.
 | [`src/firstlook/firstLookTiming.ts`](src/firstlook/firstLookTiming.ts) | The four numbers worth tuning |
 | [`src/firstlook/FirstLookSource.ts`](src/firstlook/FirstLookSource.ts) | The `'cloudx'` / `'gam'` union every callback reports |
 | [`src/config/adUnits.ts`](src/config/adUnits.ts) | This demo's placements and the required dashboard setup — replace with your own |
-| [`App.tsx`](App.tsx) | Minimal host screen |
+| [`App.tsx`](App.tsx) | Minimal host screen, plus a **Mediation Debugger** button that calls `CloudX.showMediationDebugger()` to list the installed adapters on a test device |
 
 A real integration renders `<FirstLookBannerSlot />` and calls
 `useFirstLookInterstitial(...)` and nothing else.
@@ -103,14 +103,27 @@ from hanging the slot forever, but do not rely on it.
 
 ## Versions
 
-Pinned to one published runtime, not the newest available, so the app reproduces on every machine:
+The CloudX dependencies are declared by major version and resolve to the newest release on that
+line, so the demo does not go stale between releases:
 
-| | Version | Why |
+| | Declared as | Example |
 |---|---|---|
-| `cloudx-react-native` | `3.4.7` | The published wrapper this app is written against |
-| `CloudXCore` (iOS) | `3.4.5` **exact** | `~> 3.4.5` would resolve to 3.4.6 |
-| `io.cloudx:sdk` (Android) | `4.4.0` | The wrapper declares 4.1.7 transitively — this app forces 4.4.0 |
-| React Native | `0.76.2` | What `cloudx-react-native@3.4.7` targets |
+| `cloudx-react-native` | npm caret range | `^3.10.0` |
+| Android adapters | Gradle `+` | `io.cloudx:adapter-vungle:7.+` |
+| iOS adapters | CocoaPods `~>` | `pod 'CloudXVungleAdapter', '~> 7.0'` (`>= 7.0, < 8.0`) |
+
+On iOS, `cloudx-react-native` brings `CloudXCore`. On Android, the app declares the core as
+`io.cloudx:sdk:4.+` because `MainApplication.kt` calls it directly. `package-lock.json` and
+`ios/Podfile.lock` are not committed, so a fresh install resolves the current releases instead of
+replaying old ones.
+
+The demo includes the adapters for Meta Audience Network, Vungle, InMobi, Mintegral, Unity Ads,
+Magnite, Moloco, Verve, Digital Turbine, Pangle, MobileFuse, TaurusX and BIGO Ads. Each network's iOS
+`SKAdNetworkItems` are yours to add for an App Store build; the demo does not carry them all.
+
+Android builds with compileSdk 36 and Android Gradle plugin 8.9.1 (Gradle 8.11.1), above the 34 and
+8.6.0 that React Native 0.76.2 ships: the Meta adapter's Audience Network SDK depends on
+`androidx.browser` 1.9.0, which requires both. `targetSdk` stays at 34.
 
 `CloudXGoogleWaterfallAdapter` is deliberately **absent**: it runs AdMob demand *inside* the CloudX
 auction, the opposite of First Look, and pins a `Google-Mobile-Ads-SDK` version that fights
@@ -119,20 +132,17 @@ auction, the opposite of First Look, and pins a `Google-Mobile-Ads-SDK` version 
 ## Running
 
 ```bash
-# npm ci, not npm install: the committed package-lock.json pins the JS side,
-# and `install` is free to move it.
-npm ci
+npm install
 
 # Through Bundler, not global CocoaPods. The Gemfile holds CocoaPods in the
-# 1.16.x line that generated ios/Podfile.lock; a global `pod install` can be
-# any version and will regenerate the workspace with a different toolchain.
+# 1.16.x line that React Native 0.76.2 needs; a global `pod install` can be any
+# version and will generate the workspace with a different toolchain.
 bundle install
-(cd ios && bundle exec pod install)
+(cd ios && bundle exec pod install --repo-update)
 ```
 
-`Gemfile.lock` is deliberately not committed; `ios/Podfile.lock` is the lockfile
-that matters, because it pins the native dependency graph. Two Gemfile pins are
-not inherited from the React Native template:
+No lockfile is committed (see [Versions](#versions)). Two Gemfile pins are not
+inherited from the React Native template:
 
 - **`cocoapods ~> 1.16.2`** — 1.17.0 cannot parse RN 0.76.2's Podfile
   (`unknown keyword: quirks_mode`).

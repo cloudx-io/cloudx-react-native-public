@@ -5,7 +5,8 @@
  *
  * One banner and one interstitial, each giving CloudX the first chance to fill
  * and falling back to Google Ad Manager when it does not. The pattern lives in
- * `src/firstlook/`; this screen only hosts it.
+ * `src/firstlook/`; this screen only hosts it, plus a Mediation Debugger button
+ * for checking the installed adapters on a test device.
  *
  * Read in this order:
  *   1. src/config/adUnits.ts                     — placements + dashboard setup
@@ -61,12 +62,28 @@ export default function App() {
     };
   }, []);
 
+  /*
+   * Opens the native Mediation Debugger: each installed adapter with its
+   * version and status, the ad units and the SDK configuration. It resolves
+   * false instead of throwing when it cannot open.
+   */
+  const openMediationDebugger = useCallback(async () => {
+    const opened = await CloudX.showMediationDebugger();
+    if (!opened) {
+      console.warn('[CloudX] Mediation Debugger did not open');
+      setStatus('Mediation Debugger did not open');
+    }
+  }, []);
+
   return (
     <SafeAreaView style={styles.root}>
       <StatusBar barStyle="dark-content" />
       <ScrollView contentContainerStyle={styles.content}>
         <Text style={styles.title}>CloudX First Look</Text>
         <Text style={styles.status}>{status}</Text>
+        {ready ? (
+          <Button title="Mediation Debugger" onPress={openMediationDebugger} />
+        ) : null}
 
         <Section title="Interstitial">
           {ready ? <InterstitialDemo /> : null}

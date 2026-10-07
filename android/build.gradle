@@ -1,8 +1,13 @@
+/*
+ * compileSdk 36 and Android Gradle plugin 8.9.1 are above what React Native
+ * 0.76.2 ships (34 and 8.6.0). The Meta adapter's Audience Network SDK depends
+ * on androidx.browser 1.9.0, which requires both. targetSdk is unchanged.
+ */
 buildscript {
     ext {
-        buildToolsVersion = "34.0.0"
+        buildToolsVersion = "36.0.0"
         minSdkVersion = 24
-        compileSdkVersion = 34
+        compileSdkVersion = 36
         targetSdkVersion = 34
         ndkVersion = "26.1.10909125"
         kotlinVersion = "2.1.20"
@@ -12,7 +17,7 @@ buildscript {
         mavenCentral()
     }
     dependencies {
-        classpath("com.android.tools.build:gradle")
+        classpath("com.android.tools.build:gradle:8.9.1")
         classpath("com.facebook.react:react-native-gradle-plugin")
         classpath("org.jetbrains.kotlin:kotlin-gradle-plugin")
     }
@@ -35,6 +40,10 @@ allprojects {
         // hosted on Verve's Maven repository. Consumers of cloudx-react-native
         // must add this repository when integrating the Verve adapter.
         maven { url "https://verve.jfrog.io/artifactory/verve-gradle-release" }
+        // Required by io.cloudx:adapter-taurusx: the TaurusX SDK is hosted on TaurusX's Maven repository.
+        maven { url "https://artifact.taurusx.com/artifactory/taurusx-sdk/" }
+        // Required by io.cloudx:adapter-pangle: the Pangle SDK is hosted on ByteDance's Maven repository.
+        maven { url "https://artifact.bytedance.com/repository/pangle" }
     }
     configurations.all {
         resolutionStrategy.eachDependency { details ->

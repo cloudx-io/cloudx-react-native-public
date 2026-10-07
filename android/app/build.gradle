@@ -107,42 +107,33 @@ android {
     }
 }
 
-configurations.configureEach {
-    resolutionStrategy {
-        // Pin the CloudX core to an exact published version. Without
-        // this, the version is decided by Gradle conflict resolution between
-        // this module's declaration and cloudx-react-native's transitive 4.1.7,
-        // which is correct today but silently changes if either moves.
-        force "io.cloudx:sdk:4.4.0"
-    }
-}
-
 dependencies {
     // The version of react-native is set by the React Native Gradle Plugin
     implementation("com.facebook.react:react-android")
 
-    // CloudX React Native SDK — added by autolinking from node_modules.
-
-    // CloudX Android SDK + adapters. As of SDK 4.0.0 adapters version
-    // independently of the core SDK on a network-version line
-    // (<network-sdk-version>.<adapter-revision>).
-    //
-    // 4.4.0 is the version this demo pins. Note that
-    // cloudx-react-native 3.4.7 declares io.cloudx:sdk:4.1.7 transitively —
-    // Gradle resolves to the highest requested version, so declaring 4.4.0
-    // here is what actually determines the core version. The
-    // resolutionStrategy below makes that explicit rather than relying on
-    // conflict resolution to land where we want.
-    implementation "io.cloudx:sdk:4.4.0"
-    implementation "io.cloudx:adapter-meta:6.21.0.0"
-    implementation "io.cloudx:adapter-vungle:7.7.3.0"
-    implementation "io.cloudx:adapter-inmobi:11.2.0.0"
-    implementation "io.cloudx:adapter-mintegral:17.1.51.0"
-    implementation "io.cloudx:adapter-unityads:4.17.0.0"
-    implementation "io.cloudx:adapter-magnite:0.0.14.0"
-    implementation "io.cloudx:adapter-moloco:4.8.0.0"
-    implementation "io.cloudx:adapter-verve:3.8.1.0"
-    implementation "io.cloudx:adapter-digitalturbine:8.4.5.0"
+    /*
+     * Every CloudX dependency is declared by major version and resolves to the
+     * newest release on that line, so the demo does not go stale between
+     * releases. Adapters version independently of the core, on the network
+     * SDK's line (<network-sdk-version>.<adapter-revision>).
+     *
+     * cloudx-react-native also brings the core, but only at runtime. It is
+     * declared here because MainApplication.kt calls it directly.
+     */
+    implementation "io.cloudx:sdk:4.+"
+    implementation "io.cloudx:adapter-meta:6.+"
+    implementation "io.cloudx:adapter-vungle:7.+"
+    implementation "io.cloudx:adapter-inmobi:11.+"
+    implementation "io.cloudx:adapter-mintegral:17.+"
+    implementation "io.cloudx:adapter-unityads:4.+"
+    implementation "io.cloudx:adapter-magnite:1.+"
+    implementation "io.cloudx:adapter-moloco:4.+"
+    implementation "io.cloudx:adapter-verve:3.+"
+    implementation "io.cloudx:adapter-digitalturbine:8.+"
+    implementation "io.cloudx:adapter-pangle:8.+"
+    implementation "io.cloudx:adapter-mobilefuse:1.+"
+    implementation "io.cloudx:adapter-taurusx:1.+"
+    implementation "io.cloudx:adapter-bigo:6.+"
 
     if (hermesEnabled.toBoolean()) {
         implementation("com.facebook.react:hermes-android")
