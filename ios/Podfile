@@ -40,25 +40,25 @@ target 'CloudXReactNativeDemo' do
   #      and react-native-google-mobile-ads brings its own. CocoaPods resolves
   #      one version per pod for the whole project, so the two fight.
 
-  # Only CloudXCore is pinned exactly. The adapters use `~> 3.4.5`, which
-  # accepts any later 3.4.x, so a fresh `pod install` or a `pod update` can move
-  # them. Podfile.lock is what actually reproduces one runtime — commit it, and
-  # do not regenerate it casually.
-  #
-  # NOTE the exact `3.4.5` on the core rather than `~> 3.4.5`: CloudXCore 3.4.6
-  # exists, and the pessimistic operator would silently resolve to it.
-  pod 'CloudXCore',             '3.4.5'
-  pod 'CloudXMetaAdapter',      '~> 3.4.5'
-  pod 'CloudXVungleAdapter',    '~> 3.4.5'
-  pod 'CloudXInMobiAdapter',    '~> 3.4.5'
-  pod 'CloudXMintegralAdapter', '~> 3.4.5'
-  pod 'CloudXUnityAdsAdapter',  '~> 3.4.5'
-  pod 'UnityAds',               '4.17.0'
-  pod 'CloudXMagniteAdapter',   '~> 3.4.5'
-  pod 'CloudXMolocoAdapter',    '~> 3.4.5'
-  pod 'CloudXVerveAdapter',     '~> 3.4.5'
-  pod 'CloudXDigitalTurbineAdapter', '~> 3.4.5'
-  pod 'CloudXRenderer',         '~> 3.4.5'
+  # CloudXCore comes from the cloudx-react-native podspec, so only the adapters
+  # are declared here. Each one is declared by major version (`~> 6.0` means
+  # `>= 6.0, < 7.0`) and resolves to the newest release on that line, so the
+  # demo does not go stale between releases. Podfile.lock is not committed for
+  # the same reason. Adapters version independently of CloudXCore, on the
+  # network SDK's line.
+  pod 'CloudXMetaAdapter',           '~> 6.0'
+  pod 'CloudXVungleAdapter',         '~> 7.0'
+  pod 'CloudXInMobiAdapter',         '~> 11.0'
+  pod 'CloudXMintegralAdapter',      '~> 8.0'
+  pod 'CloudXUnityAdsAdapter',       '~> 4.0'
+  pod 'CloudXMagniteAdapterV2',      '~> 1.0'
+  pod 'CloudXMolocoAdapter',         '~> 4.0'
+  pod 'CloudXVerveAdapter',          '~> 3.0'
+  pod 'CloudXDigitalTurbineAdapter', '~> 8.0'
+  pod 'CloudXPangleAdapter',         '~> 8.0'
+  pod 'CloudXMobileFuseAdapter',     '~> 1.0'
+  pod 'CloudXTaurusXAdapter',        '~> 1.0'
+  pod 'CloudXBigoAdapter',           '~> 6.0'
 
   post_install do |installer|
     react_native_post_install(
