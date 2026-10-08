@@ -93,11 +93,14 @@ export default function App() {
           */}
           {ready ? <BannerDemo /> : null}
         </Section>
-
-        {ready ? (
-          <Button title="Mediation Debugger" onPress={openMediationDebugger} />
-        ) : null}
       </ScrollView>
+
+      {/* Pinned to the bottom of the screen, outside the scrolling content. */}
+      {ready ? (
+        <View style={styles.footer}>
+          <Button title="Mediation Debugger" onPress={openMediationDebugger} />
+        </View>
+      ) : null}
     </SafeAreaView>
   );
 }
@@ -263,6 +266,7 @@ function Section({
 const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: '#fff' },
   content: { padding: 24, gap: 28 },
+  footer: { paddingHorizontal: 24, paddingVertical: 16 },
   title: { fontSize: 24, fontWeight: '600' },
   status: { fontSize: 13, color: '#666' },
   section: { gap: 12 },
