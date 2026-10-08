@@ -81,9 +81,6 @@ export default function App() {
       <ScrollView contentContainerStyle={styles.content}>
         <Text style={styles.title}>CloudX First Look</Text>
         <Text style={styles.status}>{status}</Text>
-        {ready ? (
-          <Button title="Mediation Debugger" onPress={openMediationDebugger} />
-        ) : null}
 
         <Section title="Interstitial">
           {ready ? <InterstitialDemo /> : null}
@@ -96,6 +93,10 @@ export default function App() {
           */}
           {ready ? <BannerDemo /> : null}
         </Section>
+
+        {ready ? (
+          <Button title="Mediation Debugger" onPress={openMediationDebugger} />
+        ) : null}
       </ScrollView>
     </SafeAreaView>
   );
